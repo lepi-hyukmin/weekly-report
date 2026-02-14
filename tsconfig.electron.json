@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "module": "commonjs",
+    "target": "es2022",
+    "outDir": "./dist/weekly-report/electron",
+    "rootDir": "./electron",
+    "types": ["node"],
+    "importHelpers": false,
+    "esModuleInterop": true,
+    "resolveJsonModule": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "moduleResolution": "node"
+  },
+  "include": ["electron/**/*"]
+}

@@ -1,0 +1,23 @@
+{
+  "appId": "com.lepisode.weekly-report",
+  "productName": "주간보고서 생성기",
+  "artifactName": "${productName} Setup.${ext}",
+  "directories": {
+    "output": "dist/packages/weekly-report-electron",
+    "app": "dist/weekly-report"
+  },
+  "files": ["electron/**/*", "browser/**/*", "package.json"],
+  "extraMetadata": {
+    "main": "electron/main.js"
+  },
+  "asar": false,
+  "buildDependenciesFromSource": false,
+  "nodeGypRebuild": false,
+  "npmRebuild": false,
+  "disableSanityCheckAsar": true,
+  "forceCodeSigning": false,
+  "win": {
+    "target": ["dir"],
+    "icon": "public/favicon.ico"
+  }
+}
