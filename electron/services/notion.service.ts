@@ -65,7 +65,7 @@ export class NotionService {
   }
 
   /**
-   * 기간별 일정 조회 — getCollectionData 사용
+   * 기간별 일정 조회 — queryCollection API 직접 호출 (서버 필터링)
    */
   async fetchSchedules(
     startDate: string,
@@ -75,12 +75,13 @@ export class NotionService {
     const config = loadConfig();
     const client = this.getClient();
     const dbId = config.notionDbId;
+    const currentUserId = config.notionUserId || '';
 
     console.log(`[Notion] 일정 조회: ${startDate} ~ ${endDate}, 유형: ${type}`);
 
-    // Step 1: getPage로 컬렉션/뷰 ID 확보
+    // Step 1: getPage로 컬렉션/뷰 ID + 스키마 확보
     const pageMap = await client.getPage(dbId, {
-      fetchCollections: false,
+      fetchCollections: true,
       fetchMissingBlocks: false,
       signFileUrls: false,
     });
@@ -106,55 +107,10 @@ export class NotionService {
       console.log('[Notion] 컬렉션 또는 뷰 ID 없음');
       return [];
     }
-
     console.log(`[Notion] 컬렉션: ${collectionId}, 뷰: ${viewId}`);
 
-    // Step 2: getCollectionData로 전체 데이터 조회
-    const collectionData = await client.getCollectionData(
-      collectionId,
-      viewId,
-      undefined,
-      { limit: 9999, userTimeZone: 'Asia/Seoul' },
-    );
-
-    const recordMap = collectionData.recordMap || {};
-    const queryResult = collectionData.result || {};
-
-    // 디버그: 응답 구조 확인
-    console.log('[Notion] collectionData 키:', Object.keys(collectionData));
-    console.log('[Notion] result 키:', Object.keys(queryResult));
-    console.log('[Notion] result.type:', (queryResult as any).type);
-    console.log('[Notion] recordMap 키:', Object.keys(recordMap));
-    console.log(
-      '[Notion] recordMap.block 수:',
-      Object.keys(recordMap.block || {}).length,
-    );
-    // reducerResults 확인
-    if ((queryResult as any).reducerResults) {
-      console.log(
-        '[Notion] reducerResults 키:',
-        Object.keys((queryResult as any).reducerResults),
-      );
-      const rr = (queryResult as any).reducerResults;
-      for (const [k, v] of Object.entries(rr) as any[]) {
-        console.log(
-          `[Notion]   reducer ${k}:`,
-          Object.keys(v),
-          v.blockIds?.length ?? 'no blockIds',
-        );
-      }
-    }
-    // collection_group_results 확인
-    if ((queryResult as any).collection_group_results) {
-      const cgr = (queryResult as any).collection_group_results;
-      console.log(
-        '[Notion] collection_group_results:',
-        JSON.stringify(cgr).substring(0, 300),
-      );
-    }
-
     // 스키마 추출
-    const collections = recordMap.collection || {};
+    const collections = pageMap.collection || {};
     let schema: any = {};
     for (const [, colData] of Object.entries(collections)) {
       const colValue = unwrap(colData);
@@ -170,145 +126,119 @@ export class NotionService {
     }
     console.log(`[Notion] ✅ 스키마 ${Object.keys(schema).length}개 필드`);
 
-    // 블록 ID 목록 (여러 경로에서 추출)
-    let blockIds: string[] = queryResult.blockIds || [];
-
-    // reducerResults에서 추출
-    if (blockIds.length === 0 && (queryResult as any).reducerResults) {
-      const rr = (queryResult as any).reducerResults;
-      for (const [, reducer] of Object.entries(rr) as any[]) {
-        const ids = reducer?.blockIds || [];
-        for (const id of ids) {
-          if (!blockIds.includes(id)) blockIds.push(id);
-        }
-      }
-    }
-
-    // collection_group_results에서 추출
-    if (
-      blockIds.length === 0 &&
-      (queryResult as any).collection_group_results
-    ) {
-      const cgr = (queryResult as any).collection_group_results;
-      if (cgr.blockIds) {
-        blockIds = cgr.blockIds;
-      }
-    }
-
-    // 마지막 fallback: recordMap.block에서 직접 추출
-    if (blockIds.length === 0) {
-      const allBlocks = recordMap.block || {};
-      for (const [bid, bdata] of Object.entries(allBlocks)) {
-        const bval = unwrap(bdata);
-        if (bval?.type === 'page') {
-          blockIds.push(bid);
-        }
-      }
-      console.log(
-        `[Notion] fallback: recordMap.block에서 ${blockIds.length}개 추출`,
-      );
-    }
-
-    // groupResults에서도 블록 ID 수집
-    if (queryResult.groupResults) {
-      for (const group of queryResult.groupResults) {
-        if (group.blockIds) {
-          for (const id of group.blockIds) {
-            if (!blockIds.includes(id)) blockIds.push(id);
-          }
-        }
-      }
-    }
-    console.log(`[Notion] 블록 수: ${blockIds.length}`);
-
-    // 유저 매핑
-    const userMap: Record<string, string> = {};
-    const notionUsers = recordMap.notion_user || {};
-    for (const [userId, userData] of Object.entries(notionUsers) as any[]) {
-      const val = unwrap(userData);
-      if (!val) continue;
-      const name =
-        val.name || `${val.given_name || ''} ${val.family_name || ''}`.trim();
-      if (name) userMap[userId] = name;
-    }
-
-    // 유저맵이 비어있으면 API로 시도
-    if (Object.keys(userMap).length === 0) {
-      const userIds = new Set<string>();
-      const blocks = recordMap.block || {};
-      for (const bid of blockIds.slice(0, 30)) {
-        const bval = unwrap((blocks as any)[bid]);
-        if (!bval?.properties) continue;
-        const str = JSON.stringify(bval.properties);
-        const uuids = str.match(
-          /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/g,
-        );
-        if (uuids) uuids.forEach((id: string) => userIds.add(id));
-      }
-      if (userIds.size > 0) {
-        try {
-          const res = await client.getUsers(Array.from(userIds).slice(0, 30));
-          if (res?.results) {
-            for (const u of res.results as any[]) {
-              const n =
-                u.name || `${u.given_name || ''} ${u.family_name || ''}`.trim();
-              if (n && u.id) userMap[u.id] = n;
-            }
-          }
-        } catch {}
-      }
-    }
-    // userMap은 보고서 표시용으로만 사용 (필터링은 UUID로)
-    console.log(`[Notion] 유저 ${Object.keys(userMap).length}명`);
-
-    // === 일정 파싱 ===
-    const blocks = recordMap.block || {};
-    const schedules: NotionSchedule[] = [];
-    const currentUserId = config.notionUserId || '';
-    const currentUserName = config.notionUserName || '';
-
-    // 참여자(person) 스키마 키 찾기
+    // 스키마에서 날짜/참여자/상태 필드 키 찾기
+    let dateSchemaKey = '';
     let personSchemaKey = '';
+    let statusSchemaKey = '';
     for (const [key, def] of Object.entries(schema) as any[]) {
-      if (def.type === 'person' || (def.name || '').includes('참여자')) {
+      const name = (def.name || '').toLowerCase();
+      if (
+        !dateSchemaKey &&
+        (name.includes('완료') || name.includes('날짜') || def.type === 'date')
+      ) {
+        dateSchemaKey = key;
+      }
+      if (
+        !personSchemaKey &&
+        (name.includes('참여자') || def.type === 'person')
+      ) {
         personSchemaKey = key;
-        break;
+      }
+      if (
+        !statusSchemaKey &&
+        (name.includes('상태') || def.type === 'status')
+      ) {
+        statusSchemaKey = key;
       }
     }
     console.log(
-      `[Notion] 참여자 필드 키: ${personSchemaKey}, 현재유저ID: ${currentUserId}`,
+      `[Notion] 필드키 — 날짜:${dateSchemaKey}, 참여자:${personSchemaKey}, 상태:${statusSchemaKey}`,
     );
 
+    // Step 2: getCollectionData로 전체 데이터 조회 (서버 필터 없이)
+    const collectionData = await client.getCollectionData(
+      collectionId,
+      viewId,
+      undefined,
+      { limit: 9999, userTimeZone: 'Asia/Seoul' },
+    );
+
+    const recordMap = collectionData.recordMap || {};
+    const queryResult = collectionData.result || {};
+
+    // 블록 ID 추출
+    let blockIds: string[] = [];
+    const reducerResults = (queryResult as any)?.reducerResults;
+    if (reducerResults?.collection_group_results?.blockIds) {
+      blockIds = reducerResults.collection_group_results.blockIds;
+    } else if ((queryResult as any)?.blockIds) {
+      blockIds = (queryResult as any).blockIds;
+    }
+
+    // recordMap.block에서도 추출 (fallback)
+    if (blockIds.length === 0) {
+      for (const [bid, bdata] of Object.entries(recordMap.block || {})) {
+        const bval = unwrap(bdata);
+        if (bval?.type === 'page') blockIds.push(bid);
+      }
+    }
+
+    const loadedBlockCount = Object.keys(recordMap.block || {}).length;
+    console.log(
+      `[Notion] 블록 ID: ${blockIds.length}건, 로드된 블록: ${loadedBlockCount}건`,
+    );
+
+    // Step 3: 로드되지 않은 블록 배치 로드 (최대 1000건)
+    const blocks: Record<string, any> = { ...(recordMap.block || {}) };
+    const missingIds = blockIds.filter((id) => !blocks[id]);
+    const maxLoad = Math.min(missingIds.length, 1000);
+
+    if (maxLoad > 0) {
+      console.log(
+        `[Notion] 누락 블록 ${missingIds.length}건 중 ${maxLoad}건 배치 로드...`,
+      );
+      const BATCH_SIZE = 100;
+      for (let i = 0; i < maxLoad; i += BATCH_SIZE) {
+        const batch = missingIds.slice(i, i + BATCH_SIZE);
+        try {
+          const result = await client.getBlocks(batch);
+          const newBlocks = result?.recordMap?.block || {};
+          Object.assign(blocks, newBlocks);
+        } catch (e: any) {
+          console.log(
+            `[Notion] 배치 ${Math.floor(i / BATCH_SIZE) + 1} 로드 실패: ${e.message}`,
+          );
+        }
+      }
+      console.log(
+        `[Notion] 배치 로드 완료, 총 블록: ${Object.keys(blocks).length}건`,
+      );
+    }
+
+    // Step 4: 클라이언트 사이드 필터링 + 파싱
+    const schedules: NotionSchedule[] = [];
+    const userMap: Record<string, string> = {};
     let debugCount = 0;
 
     for (const blockId of blockIds) {
-      const value = unwrap((blocks as any)[blockId]);
+      const value = unwrap(blocks[blockId]);
       if (!value) continue;
 
       const properties = value.properties || {};
       if (Object.keys(properties).length <= 1) continue;
 
-      // UUID 기반 참여자 필터 (파싱 전에 빠르게 걸러냄)
+      // UUID 기반 참여자 필터
       if (currentUserId && personSchemaKey) {
         const personProp = properties[personSchemaKey];
         if (personProp) {
           const personJson = JSON.stringify(personProp);
-          if (!personJson.includes(currentUserId)) {
-            continue; // 내 일정이 아님
-          }
+          if (!personJson.includes(currentUserId)) continue;
         } else {
-          continue; // 참여자 속성 없음
+          continue;
         }
       }
 
       const parsed = this.parseBlockProperties(properties, schema, userMap);
-
-      if (debugCount < 5) {
-        console.log(
-          `[Notion] ✅ 내 일정: "${parsed.title}" | 상태:${parsed.status} | 날짜:${parsed.date}`,
-        );
-        debugCount++;
-      }
 
       // 날짜 필터
       if (!parsed.date) continue;
@@ -321,7 +251,14 @@ export class NotionService {
       // 금요일: 완료만
       if (type === 'FRIDAY' && parsed.status !== '완료') continue;
 
-      // 하위 블록 (필터 통과한 것만)
+      if (debugCount < 10) {
+        console.log(
+          `[Notion] ✅ "${parsed.title}" | ${parsed.status} | ${parsed.date}`,
+        );
+        debugCount++;
+      }
+
+      // 하위 블록 내용 수집
       let childContent: string[] = [];
       try {
         childContent = await this.fetchPageBlocks(blockId);
@@ -346,7 +283,7 @@ export class NotionService {
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     );
 
-    console.log(`[Notion] ✅ 필터링 결과: ${schedules.length}건`);
+    console.log(`[Notion] ✅ 최종 결과: ${schedules.length}건`);
     return schedules;
   }
 
