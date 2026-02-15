@@ -1,6 +1,21 @@
-import { Component, signal } from '@angular/core';
+import { Component, signal, computed } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ElectronService } from '../../services/electron.service';
+
+interface SelectableSchedule {
+  id: string;
+  title: string;
+  project: string;
+  projectUrl: string;
+  category: string;
+  priority: string;
+  status: string;
+  date: string;
+  endDate: string;
+  assignees: string[];
+  childContent: string[];
+  checked: boolean;
+}
 
 @Component({
   selector: 'app-report',
@@ -52,47 +67,60 @@ import { ElectronService } from '../../services/electron.service';
         }
       </section>
 
-      <!-- 확인 다이얼로그 -->
-      @if (showConfirm()) {
-        <section class="card confirm-card">
-          <div class="confirm-content">
-            <div class="confirm-icon">📋</div>
-            <div class="confirm-text">
-              <p class="confirm-main">
-                <strong>{{ fetchedSchedules().length }}</strong
-                >개의 일정을 찾았습니다.
-              </p>
-              <p class="confirm-sub">AI 요약을 포함한 보고서를 생성할까요?</p>
+      <!-- 일정 선택 목록 -->
+      @if (showScheduleList()) {
+        <section class="card schedule-list-card">
+          <div class="schedule-list-header">
+            <div class="schedule-list-info">
+              <span class="schedule-count">
+                <strong>{{ selectedCount() }}</strong
+                >개 선택됨
+                <span class="schedule-total"
+                  >(총 {{ fetchedSchedules().length }}건)</span
+                >
+              </span>
+            </div>
+            <div class="schedule-list-actions">
+              <button class="btn btn-text" (click)="toggleAll()">
+                {{ allSelected() ? '☐ 전체 해제' : '☑ 전체 선택' }}
+              </button>
             </div>
           </div>
-          <div class="confirm-schedule-preview">
-            @for (s of fetchedSchedules().slice(0, 5); track s.id) {
-              <div class="schedule-item">
+
+          <div class="schedule-list">
+            @for (s of fetchedSchedules(); track s.id) {
+              <label class="schedule-row" [class.unchecked]="!s.checked">
+                <input
+                  type="checkbox"
+                  class="schedule-checkbox"
+                  [(ngModel)]="s.checked"
+                />
                 <span
                   class="schedule-status"
                   [class.done]="s.status === '완료'"
                   >{{ s.status || '-' }}</span
                 >
                 <span class="schedule-title">{{ s.title }}</span>
+                <span class="schedule-project">{{ s.project }}</span>
                 <span class="schedule-date">{{ s.date }}</span>
-              </div>
-            }
-            @if (fetchedSchedules().length > 5) {
-              <p class="more-text">
-                ... 외 {{ fetchedSchedules().length - 5 }}건
-              </p>
+              </label>
             }
           </div>
-          <div class="confirm-actions">
+
+          <div class="schedule-list-footer">
             <button class="btn btn-secondary" (click)="cancelGenerate()">
               취소
             </button>
             <button
               class="btn btn-primary"
               (click)="confirmGenerate()"
-              [disabled]="generating()"
+              [disabled]="generating() || selectedCount() === 0"
             >
-              {{ generating() ? '⏳ 보고서 생성 중...' : '🚀 보고서 생성' }}
+              {{
+                generating()
+                  ? '⏳ 보고서 생성 중...'
+                  : '🚀 보고서 생성 (' + selectedCount() + '건)'
+              }}
             </button>
           </div>
         </section>
@@ -256,6 +284,18 @@ import { ElectronService } from '../../services/electron.service';
       .btn-secondary:hover {
         background: rgba(102, 126, 234, 0.25);
       }
+      .btn-text {
+        background: transparent;
+        color: #8888aa;
+        padding: 6px 12px;
+        font-size: 12px;
+        border: 1px solid #2a2a4a;
+        border-radius: 6px;
+      }
+      .btn-text:hover {
+        color: #667eea;
+        border-color: #667eea;
+      }
       .btn-generate {
         padding: 12px 28px;
         font-size: 15px;
@@ -267,8 +307,8 @@ import { ElectronService } from '../../services/electron.service';
         margin-top: 8px;
       }
 
-      /* 확인 다이얼로그 */
-      .confirm-card {
+      /* 일정 선택 목록 */
+      .schedule-list-card {
         background: linear-gradient(135deg, #1a1a3e, #1e1e42);
         border-color: #667eea40;
         animation: slideIn 0.3s ease;
@@ -283,49 +323,57 @@ import { ElectronService } from '../../services/electron.service';
           transform: translateY(0);
         }
       }
-      .confirm-content {
+      .schedule-list-header {
         display: flex;
+        justify-content: space-between;
         align-items: center;
-        gap: 16px;
-        margin-bottom: 16px;
+        margin-bottom: 12px;
       }
-      .confirm-icon {
-        font-size: 36px;
-        flex-shrink: 0;
-      }
-      .confirm-main {
-        font-size: 18px;
+      .schedule-count {
+        font-size: 15px;
         color: #fff;
-        margin: 0 0 4px;
       }
-      .confirm-main strong {
+      .schedule-count strong {
         color: #667eea;
-        font-size: 22px;
+        font-size: 18px;
       }
-      .confirm-sub {
-        font-size: 14px;
-        color: #8888aa;
-        margin: 0;
+      .schedule-total {
+        color: #6868aa;
+        font-size: 13px;
+        margin-left: 4px;
       }
-      .confirm-schedule-preview {
+      .schedule-list {
         background: #0f0f1a;
         border: 1px solid #2a2a4a;
         border-radius: 8px;
-        padding: 12px 16px;
-        margin-bottom: 16px;
-        max-height: 200px;
+        max-height: 400px;
         overflow-y: auto;
       }
-      .schedule-item {
+      .schedule-row {
         display: flex;
         align-items: center;
         gap: 10px;
-        padding: 6px 0;
+        padding: 10px 14px;
         border-bottom: 1px solid #1a1a2e;
         font-size: 13px;
+        cursor: pointer;
+        transition: background 0.15s;
       }
-      .schedule-item:last-child {
+      .schedule-row:last-child {
         border-bottom: none;
+      }
+      .schedule-row:hover {
+        background: rgba(102, 126, 234, 0.05);
+      }
+      .schedule-row.unchecked {
+        opacity: 0.45;
+      }
+      .schedule-checkbox {
+        width: 16px;
+        height: 16px;
+        accent-color: #667eea;
+        cursor: pointer;
+        flex-shrink: 0;
       }
       .schedule-status {
         padding: 2px 8px;
@@ -337,6 +385,7 @@ import { ElectronService } from '../../services/electron.service';
         white-space: nowrap;
         min-width: 50px;
         text-align: center;
+        flex-shrink: 0;
       }
       .schedule-status.done {
         background: rgba(72, 187, 120, 0.15);
@@ -349,23 +398,28 @@ import { ElectronService } from '../../services/electron.service';
         text-overflow: ellipsis;
         white-space: nowrap;
       }
+      .schedule-project {
+        color: #667eea;
+        font-size: 11px;
+        white-space: nowrap;
+        max-width: 120px;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        flex-shrink: 0;
+      }
       .schedule-date {
         color: #6868aa;
         font-size: 12px;
         white-space: nowrap;
+        flex-shrink: 0;
       }
-      .more-text {
-        color: #6868aa;
-        font-size: 12px;
-        text-align: center;
-        margin: 8px 0 0;
-      }
-      .confirm-actions {
+      .schedule-list-footer {
         display: flex;
         justify-content: flex-end;
         gap: 10px;
+        margin-top: 16px;
       }
-      .confirm-actions .btn {
+      .schedule-list-footer .btn {
         padding: 10px 24px;
         font-size: 14px;
       }
@@ -491,8 +545,18 @@ export class ReportPage {
   protected copied = signal(false);
   protected scheduleCount = signal(0);
   protected previewHtml = signal('');
-  protected showConfirm = signal(false);
-  protected fetchedSchedules = signal<any[]>([]);
+  protected showScheduleList = signal(false);
+  protected fetchedSchedules = signal<SelectableSchedule[]>([]);
+
+  protected selectedCount = computed(
+    () => this.fetchedSchedules().filter((s) => s.checked).length,
+  );
+
+  protected allSelected = computed(
+    () =>
+      this.fetchedSchedules().length > 0 &&
+      this.fetchedSchedules().every((s) => s.checked),
+  );
 
   constructor(private electron: ElectronService) {
     const now = new Date();
@@ -507,7 +571,7 @@ export class ReportPage {
   }
 
   /**
-   * Step 1: 일정 조회 → 확인 다이얼로그 표시
+   * Step 1: 일정 조회 → 체크박스 목록 표시
    */
   async fetchSchedules() {
     if (!this.startDate || !this.endDate) {
@@ -517,7 +581,7 @@ export class ReportPage {
 
     this.loading.set(true);
     this.errorMessage.set('');
-    this.showConfirm.set(false);
+    this.showScheduleList.set(false);
     this.reportMarkdown.set('');
 
     try {
@@ -528,13 +592,15 @@ export class ReportPage {
       });
 
       if (result?.success) {
-        const schedules = result.data || [];
+        const schedules: SelectableSchedule[] = (result.data || []).map(
+          (s: any) => ({ ...s, checked: true }),
+        );
         this.fetchedSchedules.set(schedules);
 
         if (schedules.length === 0) {
           this.errorMessage.set('해당 기간에 일정이 없습니다.');
         } else {
-          this.showConfirm.set(true);
+          this.showScheduleList.set(true);
         }
       } else {
         this.errorMessage.set(result?.error || '일정 조회 실패');
@@ -547,15 +613,30 @@ export class ReportPage {
   }
 
   /**
-   * Step 2: 확인 → 보고서 생성
+   * 전체 선택 / 해제 토글
+   */
+  toggleAll() {
+    const newValue = !this.allSelected();
+    const updated = this.fetchedSchedules().map((s) => ({
+      ...s,
+      checked: newValue,
+    }));
+    this.fetchedSchedules.set(updated);
+  }
+
+  /**
+   * Step 2: 선택된 일정으로 보고서 생성
    */
   async confirmGenerate() {
+    const selected = this.fetchedSchedules().filter((s) => s.checked);
+    if (selected.length === 0) return;
+
     this.generating.set(true);
     this.errorMessage.set('');
 
     try {
       const result = await this.electron.generateReport({
-        schedules: this.fetchedSchedules(),
+        schedules: selected,
         type: this.reportType,
         startDate: this.startDate,
         endDate: this.endDate,
@@ -565,7 +646,7 @@ export class ReportPage {
         this.reportMarkdown.set(result.data.markdown);
         this.scheduleCount.set(result.data.schedules?.length || 0);
         this.previewHtml.set(this.markdownToHtml(result.data.markdown));
-        this.showConfirm.set(false);
+        this.showScheduleList.set(false);
       } else {
         this.errorMessage.set(result?.error || '보고서 생성 실패');
       }
@@ -577,7 +658,7 @@ export class ReportPage {
   }
 
   cancelGenerate() {
-    this.showConfirm.set(false);
+    this.showScheduleList.set(false);
     this.fetchedSchedules.set([]);
   }
 

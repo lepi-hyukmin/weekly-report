@@ -113,12 +113,8 @@ export class ReportService {
     const lines: string[] = [];
 
     for (const project of projectGroups) {
-      // 프로젝트 헤더 (링크 포함)
-      if (project.projectUrl) {
-        lines.push(`### [${project.projectName}](${project.projectUrl})`);
-      } else {
-        lines.push(`### ${project.projectName}`);
-      }
+      // 프로젝트 헤더 (제목만)
+      lines.push(`### ${project.projectName}`);
       lines.push('');
 
       // 상위 항목 그룹핑 필요 여부 판단
