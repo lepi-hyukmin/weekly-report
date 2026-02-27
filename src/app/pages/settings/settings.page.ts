@@ -7,120 +7,137 @@ import { ElectronService } from '../../services/electron.service';
   imports: [FormsModule],
   template: `
     <div class="settings-page">
-      <h1 class="page-title">⚙️ 설정</h1>
-
-      <!-- Notion 연동 -->
-      <section class="card">
-        <h2 class="card-title">Notion 연동</h2>
-        <div class="status-row">
-          <span class="status-label">상태:</span>
-          @if (notionConnected()) {
-            <span class="status-badge connected"
-              >✅ 연결됨 ({{ notionUserName() }})</span
-            >
-          } @else {
-            <span class="status-badge disconnected">❌ 연결 안됨</span>
+      <div class="page-header">
+        <h1 class="page-title">⚙️ 설정</h1>
+        <div class="header-actions">
+          @if (saveMessage()) {
+            <span class="save-message">{{ saveMessage() }}</span>
           }
+          <button
+            class="btn btn-primary btn-large"
+            (click)="saveSettings()"
+            [disabled]="loading()"
+          >
+            저장
+          </button>
         </div>
-        <div class="button-row">
-          @if (!notionConnected()) {
-            <button
-              class="btn btn-primary"
-              (click)="loginNotion()"
-              [disabled]="loading()"
-            >
-              {{ loading() ? '로그인 중...' : '🔑 Notion 로그인' }}
-            </button>
-          } @else {
+      </div>
+
+      @if (!initialized()) {
+        <div class="loading-container">
+          <div class="spinner"></div>
+          <span class="loading-text">설정 불러오는 중...</span>
+        </div>
+      } @else {
+        <!-- Notion 연동 -->
+        <section class="card">
+          <h2 class="card-title">Notion 연동</h2>
+          <div class="status-row">
+            <span class="status-label">상태:</span>
+            @if (notionConnected()) {
+              <span class="status-badge connected"
+                >✅ 연결됨 ({{ notionUserName() }})</span
+              >
+            } @else {
+              <span class="status-badge disconnected">❌ 연결 안됨</span>
+            }
+          </div>
+          <div class="button-row">
+            @if (!notionConnected()) {
+              <button
+                class="btn btn-primary"
+                (click)="loginNotion()"
+                [disabled]="loading()"
+              >
+                {{ loading() ? '로그인 중...' : '🔑 Notion 로그인' }}
+              </button>
+            } @else {
+              <button
+                class="btn btn-secondary"
+                (click)="testNotion()"
+                [disabled]="loading()"
+              >
+                연결 테스트
+              </button>
+              <button class="btn btn-danger" (click)="logoutNotion()">
+                로그아웃
+              </button>
+            }
+          </div>
+          @if (notionMessage()) {
+            <p class="message" [class.error]="notionError()">
+              {{ notionMessage() }}
+            </p>
+          }
+        </section>
+
+        <!-- Gemini API -->
+        <section class="card">
+          <h2 class="card-title">Gemini API</h2>
+          <label class="field-label">API Key</label>
+          <input
+            type="password"
+            class="input"
+            [(ngModel)]="geminiApiKey"
+            placeholder="Gemini API 키 입력"
+          />
+          <label class="field-label" style="margin-top: 12px;">모델</label>
+          <select class="input" [(ngModel)]="geminiModel">
+            <option value="gemini-2.5-flash">gemini-2.5-flash (추천)</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro</option>
+            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+          </select>
+          <div class="button-row" style="margin-top: 12px;">
             <button
               class="btn btn-secondary"
-              (click)="testNotion()"
+              (click)="testGemini()"
               [disabled]="loading()"
             >
               연결 테스트
             </button>
-            <button class="btn btn-danger" (click)="logoutNotion()">
-              로그아웃
-            </button>
+          </div>
+          @if (geminiMessage()) {
+            <p class="message" [class.error]="geminiError()">
+              {{ geminiMessage() }}
+            </p>
           }
-        </div>
-        @if (notionMessage()) {
-          <p class="message" [class.error]="notionError()">
-            {{ notionMessage() }}
-          </p>
-        }
-      </section>
+        </section>
 
-      <!-- Notion DB ID -->
-      <section class="card">
-        <h2 class="card-title">캘린더 DB 설정</h2>
-        <label class="field-label">Database ID</label>
-        <input
-          type="text"
-          class="input"
-          [(ngModel)]="dbId"
-          placeholder="14993e1c9d5881ba9f62c3e9b3de0284"
-        />
-        <p class="field-hint">노션 캘린더 페이지 URL에서 추출한 ID</p>
-      </section>
-
-      <!-- Gemini API -->
-      <section class="card">
-        <h2 class="card-title">Gemini API</h2>
-        <label class="field-label">API Key</label>
-        <input
-          type="password"
-          class="input"
-          [(ngModel)]="geminiApiKey"
-          placeholder="Gemini API 키 입력"
-        />
-        <label class="field-label" style="margin-top: 12px;">모델</label>
-        <select class="input" [(ngModel)]="geminiModel">
-          <option value="gemini-2.5-flash">gemini-2.5-flash (추천)</option>
-          <option value="gemini-2.5-pro">gemini-2.5-pro</option>
-          <option value="gemini-2.0-flash">gemini-2.0-flash</option>
-        </select>
-        <div class="button-row" style="margin-top: 12px;">
-          <button
-            class="btn btn-secondary"
-            (click)="testGemini()"
-            [disabled]="loading()"
-          >
-            연결 테스트
-          </button>
-        </div>
-        @if (geminiMessage()) {
-          <p class="message" [class.error]="geminiError()">
-            {{ geminiMessage() }}
-          </p>
-        }
-      </section>
-
-      <!-- 저장 -->
-      <div class="save-bar">
-        <button
-          class="btn btn-primary btn-large"
-          (click)="saveSettings()"
-          [disabled]="loading()"
-        >
-          💾 설정 저장
-        </button>
-        @if (saveMessage()) {
-          <span class="save-message">{{ saveMessage() }}</span>
-        }
-      </div>
+        <!-- Notion DB ID -->
+        <section class="card">
+          <h2 class="card-title">캘린더 DB 설정</h2>
+          <label class="field-label">Database ID</label>
+          <input
+            type="text"
+            class="input"
+            [(ngModel)]="dbId"
+            placeholder="14993e1c9d5881ba9f62c3e9b3de0284"
+          />
+          <p class="field-hint">노션 캘린더 페이지 URL에서 추출한 ID</p>
+        </section>
+      }
     </div>
   `,
   styles: [
     `
       .settings-page {
-        max-width: 640px;
+      }
+      .page-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 24px;
       }
       .page-title {
         font-size: 24px;
         font-weight: 700;
-        margin-bottom: 24px;
         color: #fff;
+        margin: 0;
+      }
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
       }
       .card {
         background: #1a1a2e;
@@ -240,15 +257,34 @@ import { ElectronService } from '../../services/electron.service';
         color: #6666888;
         margin-top: 4px;
       }
-      .save-bar {
-        display: flex;
-        align-items: center;
-        gap: 12px;
-        margin-top: 24px;
-      }
       .save-message {
         font-size: 13px;
         color: #48c78e;
+      }
+      .loading-container {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        padding: 60px 0;
+        gap: 16px;
+      }
+      .spinner {
+        width: 32px;
+        height: 32px;
+        border: 3px solid #2a2a4a;
+        border-top-color: #667eea;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+      .loading-text {
+        font-size: 14px;
+        color: #6868aa;
       }
     `,
   ],
@@ -262,6 +298,7 @@ export class SettingsPage implements OnInit {
   protected geminiError = signal(false);
   protected saveMessage = signal('');
   protected loading = signal(false);
+  protected initialized = signal(false);
 
   protected dbId = '';
   protected geminiApiKey = '';
@@ -270,8 +307,8 @@ export class SettingsPage implements OnInit {
   constructor(private electron: ElectronService) {}
 
   async ngOnInit() {
-    await this.loadSettings();
-    await this.checkAuth();
+    await Promise.all([this.loadSettings(), this.checkAuth()]);
+    this.initialized.set(true);
   }
 
   private async loadSettings() {
