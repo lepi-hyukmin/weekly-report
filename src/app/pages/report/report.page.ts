@@ -538,6 +538,13 @@ import {
         line-height: 1.8;
         color: #d0d0e0;
       }
+      .preview :deep(h1) {
+        font-size: 20px;
+        color: #fff;
+        margin: 24px 0 14px;
+        padding-bottom: 8px;
+        border-bottom: 1px solid #2a2a4a;
+      }
       .preview :deep(h2) {
         font-size: 18px;
         color: #fff;
@@ -555,6 +562,10 @@ import {
         color: #b0b0d0;
         margin: 12px 0 6px;
       }
+      .preview :deep(h1:first-child),
+      .preview :deep(h2:first-child) {
+        margin-top: 0;
+      }
       .preview :deep(strong) {
         color: #fff;
       }
@@ -565,20 +576,21 @@ import {
       .preview :deep(a:hover) {
         text-decoration: underline;
       }
+      .preview :deep(p) {
+        margin: 6px 0;
+      }
       .preview :deep(ul),
       .preview :deep(ol) {
-        padding-left: 20px;
+        padding-left: 24px;
         margin: 4px 0;
-      }
-      .preview :deep(ul.sub-list) {
-        padding-left: 20px;
-        margin: 2px 0;
       }
       .preview :deep(li) {
         margin: 3px 0;
       }
-      .preview :deep(p) {
-        margin: 6px 0;
+      .preview :deep(li > ul),
+      .preview :deep(li > ol) {
+        margin: 2px 0;
+        padding-left: 24px;
       }
       .info-card {
         background: rgba(102, 126, 234, 0.08);
@@ -784,107 +796,6 @@ export class ReportPage {
   }
 
   private markdownToHtml(md: string): string {
-    const lines = md.split('\n');
-    const result: string[] = [];
-    let inList = false;
-    let inSubList = false;
-
-    for (const line of lines) {
-      // 제목
-      if (line.startsWith('#### ')) {
-        if (inSubList) {
-          result.push('</ul>');
-          inSubList = false;
-        }
-        if (inList) {
-          result.push('</ul>');
-          inList = false;
-        }
-        result.push(`<h4>${this.inlineFormat(line.slice(5))}</h4>`);
-      } else if (line.startsWith('### ')) {
-        if (inSubList) {
-          result.push('</ul>');
-          inSubList = false;
-        }
-        if (inList) {
-          result.push('</ul>');
-          inList = false;
-        }
-        result.push(`<h3>${this.inlineFormat(line.slice(4))}</h3>`);
-      } else if (line.startsWith('## ')) {
-        if (inSubList) {
-          result.push('</ul>');
-          inSubList = false;
-        }
-        if (inList) {
-          result.push('</ul>');
-          inList = false;
-        }
-        result.push(`<h2>${this.inlineFormat(line.slice(3))}</h2>`);
-      }
-      // 하위 항목 (4칸 들여쓰기)
-      else if (/^    - /.test(line)) {
-        if (!inList) {
-          result.push('<ul>');
-          inList = true;
-        }
-        if (!inSubList) {
-          result.push('<ul class="sub-list">');
-          inSubList = true;
-        }
-        result.push(
-          `<li>${this.inlineFormat(line.replace(/^    - /, ''))}</li>`,
-        );
-      }
-      // 상위 항목
-      else if (/^- /.test(line)) {
-        if (inSubList) {
-          result.push('</ul>');
-          inSubList = false;
-        }
-        if (!inList) {
-          result.push('<ul>');
-          inList = true;
-        }
-        result.push(`<li>${this.inlineFormat(line.slice(2))}</li>`);
-      }
-      // 빈 줄
-      else if (line.trim() === '') {
-        if (inSubList) {
-          result.push('</ul>');
-          inSubList = false;
-        }
-        if (inList) {
-          result.push('</ul>');
-          inList = false;
-        }
-      }
-      // 일반 텍스트
-      else {
-        if (inSubList) {
-          result.push('</ul>');
-          inSubList = false;
-        }
-        if (inList) {
-          result.push('</ul>');
-          inList = false;
-        }
-        result.push(`<p>${this.inlineFormat(line)}</p>`);
-      }
-    }
-
-    if (inSubList) result.push('</ul>');
-    if (inList) result.push('</ul>');
-
-    return result.join('\n');
-  }
-
-  private inlineFormat(text: string): string {
-    return text
-      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
-      .replace(
-        /\[([^\]]+)\]\(([^)]+)\)/g,
-        '<a href="$2" target="_blank">$1</a>',
-      );
+    return marked.parse(md, { async: false }) as string;
   }
 }
