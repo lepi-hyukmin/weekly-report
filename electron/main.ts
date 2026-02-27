@@ -140,6 +140,22 @@ function registerIpcHandlers(): void {
           };
         }
 
+        // 긴 상세내용 요약 (5개 초과 시 Gemini 요약)
+        try {
+          const summaryMap =
+            await geminiService.summarizeChildContents(schedules);
+          if (summaryMap.size > 0) {
+            for (const s of schedules as any[]) {
+              const summarized = summaryMap.get(s.title);
+              if (summarized) {
+                s.childContent = summarized;
+              }
+            }
+          }
+        } catch (err) {
+          console.error('[Report] 상세내용 요약 실패, 원본 사용:', err);
+        }
+
         // AI 요약용 텍스트
         const contentForAI = schedules
           .map(
