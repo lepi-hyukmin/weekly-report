@@ -35,7 +35,7 @@ export class ReportStateService {
   readonly reportMarkdown = signal('');
   readonly previewHtml = signal('');
   readonly scheduleCount = signal(0);
-  readonly activeTab = signal<'edit' | 'preview'>('edit');
+  readonly activeTab = signal<'edit' | 'preview'>('preview');
   readonly copied = signal(false);
 
   // 취소용 플래그

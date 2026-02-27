@@ -16,14 +16,27 @@ import {
 
       <!-- 생성 폼 -->
       <section class="card generate-card">
-        <div class="form-row">
+        <div
+          class="form-row"
+          [class.disabled-form]="state.loading() || state.generating()"
+        >
           <div class="form-group">
             <label class="field-label">시작일</label>
-            <input type="date" class="input" [(ngModel)]="state.startDate" />
+            <input
+              type="date"
+              class="input"
+              [(ngModel)]="state.startDate"
+              [disabled]="state.loading() || state.generating()"
+            />
           </div>
           <div class="form-group">
             <label class="field-label">종료일</label>
-            <input type="date" class="input" [(ngModel)]="state.endDate" />
+            <input
+              type="date"
+              class="input"
+              [(ngModel)]="state.endDate"
+              [disabled]="state.loading() || state.generating()"
+            />
           </div>
           <div class="form-group">
             <label class="field-label">유형</label>
@@ -32,6 +45,7 @@ import {
                 class="type-btn"
                 [class.active]="state.reportType === 'MONDAY'"
                 (click)="state.reportType = 'MONDAY'"
+                [disabled]="state.loading() || state.generating()"
               >
                 업무 계획 보고
               </button>
@@ -39,6 +53,7 @@ import {
                 class="type-btn"
                 [class.active]="state.reportType === 'FRIDAY'"
                 (click)="state.reportType = 'FRIDAY'"
+                [disabled]="state.loading() || state.generating()"
               >
                 업무 결과 보고
               </button>
@@ -48,6 +63,7 @@ import {
         @if (state.loading()) {
           <div class="btn-row">
             <button class="btn btn-primary btn-generate loading-btn" disabled>
+              <span class="loading-spinner"></span>
               일정 조회 중...
             </button>
             <button class="btn btn-cancel" (click)="cancelFetch()">취소</button>
@@ -126,6 +142,7 @@ import {
             @if (state.generating()) {
               <div class="btn-row">
                 <button class="btn btn-primary" disabled>
+                  <span class="loading-spinner"></span>
                   보고서 생성 중...
                 </button>
                 <button
@@ -155,17 +172,17 @@ import {
             <div class="tab-buttons">
               <button
                 class="tab-btn"
-                [class.active]="state.activeTab() === 'edit'"
-                (click)="state.activeTab.set('edit')"
-              >
-                ✏️ 편집
-              </button>
-              <button
-                class="tab-btn"
                 [class.active]="state.activeTab() === 'preview'"
                 (click)="state.activeTab.set('preview')"
               >
                 👁️ 미리보기
+              </button>
+              <button
+                class="tab-btn"
+                [class.active]="state.activeTab() === 'edit'"
+                (click)="state.activeTab.set('edit')"
+              >
+                ✏️ 편집
               </button>
             </div>
             <div class="action-buttons">
@@ -279,6 +296,30 @@ import {
         border-color: #667eea;
         color: #667eea;
         font-weight: 600;
+      }
+      .type-btn:disabled {
+        opacity: 0.5;
+        cursor: not-allowed;
+      }
+      .disabled-form {
+        opacity: 0.5;
+        pointer-events: none;
+      }
+      .loading-spinner {
+        display: inline-block;
+        width: 14px;
+        height: 14px;
+        border: 2px solid rgba(255, 255, 255, 0.3);
+        border-top-color: #fff;
+        border-radius: 50%;
+        animation: spin 0.7s linear infinite;
+        vertical-align: middle;
+        margin-right: 6px;
+      }
+      @keyframes spin {
+        to {
+          transform: rotate(360deg);
+        }
       }
       .btn {
         padding: 8px 16px;
