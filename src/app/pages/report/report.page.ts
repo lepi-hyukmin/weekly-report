@@ -528,7 +528,7 @@ import {
         border-color: #667eea;
       }
       .preview {
-        padding: 20px;
+        padding: 16px;
         background: #0f0f1a;
         border: 1px solid #2a2a4a;
         border-radius: 8px;
@@ -537,58 +537,66 @@ import {
         font-size: 14px;
         line-height: 1.8;
         color: #d0d0e0;
+        box-sizing: border-box;
       }
-      .preview :deep(h1) {
+      :host ::ng-deep .preview h1 {
         font-size: 20px;
-        color: #fff;
-        margin: 24px 0 14px;
-        padding-bottom: 8px;
-        border-bottom: 1px solid #2a2a4a;
-      }
-      .preview :deep(h2) {
-        font-size: 18px;
         color: #fff;
         margin: 20px 0 12px;
         padding-bottom: 8px;
         border-bottom: 1px solid #2a2a4a;
       }
-      .preview :deep(h3) {
+      :host ::ng-deep .preview h2 {
+        font-size: 18px;
+        color: #fff;
+        margin: 20px 0 12px;
+        padding-bottom: 6px;
+        border-bottom: 1px solid #2a2a4a;
+      }
+      :host ::ng-deep .preview h3 {
         font-size: 15px;
         color: #667eea;
         margin: 16px 0 8px;
       }
-      .preview :deep(h4) {
+      :host ::ng-deep .preview h4 {
         font-size: 14px;
         color: #b0b0d0;
         margin: 12px 0 6px;
       }
-      .preview :deep(h1:first-child),
-      .preview :deep(h2:first-child) {
+      :host ::ng-deep .preview h1:first-child,
+      :host ::ng-deep .preview h2:first-child {
         margin-top: 0;
       }
-      .preview :deep(strong) {
+      :host ::ng-deep .preview strong {
         color: #fff;
       }
-      .preview :deep(a) {
+      :host ::ng-deep .preview a {
         color: #667eea;
         text-decoration: none;
       }
-      .preview :deep(a:hover) {
+      :host ::ng-deep .preview a:hover {
         text-decoration: underline;
       }
-      .preview :deep(p) {
+      :host ::ng-deep .preview p {
         margin: 6px 0;
       }
-      .preview :deep(ul),
-      .preview :deep(ol) {
+      :host ::ng-deep .preview ul,
+      :host ::ng-deep .preview ol {
         padding-left: 24px;
         margin: 4px 0;
+        list-style-type: disc;
       }
-      .preview :deep(li) {
+      :host ::ng-deep .preview ul ul {
+        list-style-type: circle;
+      }
+      :host ::ng-deep .preview ul ul ul {
+        list-style-type: square;
+      }
+      :host ::ng-deep .preview li {
         margin: 3px 0;
       }
-      .preview :deep(li > ul),
-      .preview :deep(li > ol) {
+      :host ::ng-deep .preview li > ul,
+      :host ::ng-deep .preview li > ol {
         margin: 2px 0;
         padding-left: 24px;
       }
@@ -644,20 +652,29 @@ export class ReportPage {
           (s: any) => ({
             ...s,
             checked:
-              this.state.reportType === 'FRIDAY' ? s.status === '완료' : true,
+              (s.project || '기타') === '기타'
+                ? false
+                : this.state.reportType === 'FRIDAY'
+                  ? s.status === '완료'
+                  : true,
           }),
         );
 
-        // 프로젝트별 그룹화 후 그룹 내 날짜순 정렬
+        // 프로젝트별 그룹화 후 그룹 내 날짜순 정렬 (기타는 맨 하단)
         const grouped = new Map<string, SelectableSchedule[]>();
         for (const s of schedules) {
           const key = s.project || '기타';
           if (!grouped.has(key)) grouped.set(key, []);
           grouped.get(key)!.push(s);
         }
+        const etcGroup = grouped.get('기타') || [];
+        grouped.delete('기타');
         const sorted = Array.from(grouped.values()).flatMap((items) =>
           items.sort((a, b) => a.date.localeCompare(b.date)),
         );
+        if (etcGroup.length > 0) {
+          sorted.push(...etcGroup.sort((a, b) => a.date.localeCompare(b.date)));
+        }
         this.state.fetchedSchedules.set(sorted);
 
         if (schedules.length === 0) {
