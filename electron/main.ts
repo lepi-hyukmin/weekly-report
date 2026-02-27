@@ -20,10 +20,13 @@ const reportService = new ReportService();
  */
 function createWindow(): void {
   mainWindow = new BrowserWindow({
-    width: 1200,
+    width: 1060,
     height: 1000,
-    minWidth: 900,
-    minHeight: 800,
+    minWidth: 1060,
+    minHeight: 1000,
+    resizable: false,
+    maximizable: false,
+    fullscreenable: false,
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       nodeIntegration: false,
