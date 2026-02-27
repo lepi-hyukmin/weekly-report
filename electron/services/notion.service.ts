@@ -215,6 +215,47 @@ export class NotionService {
       );
     }
 
+    // Step 3.5: relation 페이지 (프로젝트 등) 배치 로드
+    const relationIds = new Set<string>();
+    const projectSchemaKey = Object.entries(schema).find(([, def]: any) => {
+      const n = (def.name || '').toLowerCase();
+      return n.includes('프로젝트') || n === 'project';
+    })?.[0];
+
+    if (projectSchemaKey) {
+      for (const blockId of blockIds) {
+        const value = unwrap(blocks[blockId]);
+        if (!value?.properties?.[projectSchemaKey]) continue;
+        const propJson = JSON.stringify(value.properties[projectSchemaKey]);
+        const uuidPattern =
+          /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/g;
+        const matches = propJson.match(uuidPattern);
+        if (matches) {
+          for (const id of matches) {
+            if (!blocks[id]) relationIds.add(id);
+          }
+        }
+      }
+    }
+
+    if (relationIds.size > 0) {
+      console.log(
+        `[Notion] relation 페이지 ${relationIds.size}건 배치 로드...`,
+      );
+      const relBatch = Array.from(relationIds);
+      const REL_BATCH_SIZE = 100;
+      for (let i = 0; i < relBatch.length; i += REL_BATCH_SIZE) {
+        const batch = relBatch.slice(i, i + REL_BATCH_SIZE);
+        try {
+          const result = await client.getBlocks(batch);
+          const newBlocks = result?.recordMap?.block || {};
+          Object.assign(blocks, newBlocks);
+        } catch (e: any) {
+          console.log(`[Notion] relation 배치 로드 실패: ${e.message}`);
+        }
+      }
+    }
+
     // Step 4: 클라이언트 사이드 필터링 + 파싱
     const schedules: NotionSchedule[] = [];
     const userMap: Record<string, string> = {};
@@ -238,7 +279,12 @@ export class NotionService {
         }
       }
 
-      const parsed = this.parseBlockProperties(properties, schema, userMap);
+      const parsed = this.parseBlockProperties(
+        properties,
+        schema,
+        userMap,
+        blocks,
+      );
 
       // 날짜 필터
       if (!parsed.date) continue;
@@ -247,9 +293,6 @@ export class NotionService {
       const end = new Date(endDate);
       end.setHours(23, 59, 59);
       if (scheduleDate < start || scheduleDate > end) continue;
-
-      // 금요일: 완료만
-      if (type === 'FRIDAY' && parsed.status !== '완료') continue;
 
       if (debugCount < 10) {
         console.log(
@@ -294,6 +337,7 @@ export class NotionService {
     properties: any,
     schema: any,
     userMap: Record<string, string>,
+    blocks: Record<string, any>,
   ): {
     title: string;
     project: string;
@@ -325,8 +369,15 @@ export class NotionService {
       if (type === 'title') {
         title = this.extractText(propValue);
       } else if (name.includes('프로젝트') || name === 'project') {
-        project = this.extractText(propValue);
-        projectUrl = this.extractRelationUrl(propValue);
+        if (type === 'relation') {
+          const resolved = this.extractRelationTitle(propValue, blocks);
+          if (resolved.title) {
+            project = resolved.title;
+            projectUrl = resolved.url;
+          }
+        } else {
+          project = this.extractText(propValue);
+        }
       } else if (name.includes('구분') || name.includes('카테고리')) {
         category = this.extractText(propValue);
       } else if (name.includes('우선순위') || name === 'priority') {
@@ -336,7 +387,7 @@ export class NotionService {
         name === 'status' ||
         type === 'status'
       ) {
-        status = this.extractText(propValue);
+        status = this.extractStatus(propValue, schemaDef);
       } else if (
         name.includes('완료') ||
         name.includes('날짜') ||
@@ -352,6 +403,31 @@ export class NotionService {
         this.extractPersons(propValue, userMap).forEach((p) =>
           assignees.push(p),
         );
+      }
+    }
+
+    // status가 비어있으면 schema에서 기본값 추출 (Notion 기본 상태)
+    if (!status) {
+      for (const [, schemaDef] of Object.entries(schema) as any[]) {
+        const name = (schemaDef.name || '').toLowerCase();
+        const type = schemaDef.type;
+        if (name.includes('상태') || name === 'status' || type === 'status') {
+          const options = schemaDef?.options || [];
+          const groups = schemaDef?.groups || [];
+          if (groups.length > 0 && groups[0].optionIds?.length > 0) {
+            const defaultOpt = options.find(
+              (o: any) => o.id === groups[0].optionIds[0],
+            );
+            if (defaultOpt?.value) {
+              status = defaultOpt.value;
+              break;
+            }
+          }
+          if (!status && options.length > 0) {
+            status = options[0].value || '';
+            break;
+          }
+        }
       }
     }
 
@@ -381,14 +457,115 @@ export class NotionService {
     }
   }
 
-  private extractRelationUrl(propValue: any): string {
+  private extractRelationTitle(
+    propValue: any,
+    blocks: Record<string, any>,
+  ): { title: string; url: string } {
     try {
       const flat = JSON.stringify(propValue);
-      const match = flat.match(
-        /([a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12})/,
-      );
-      if (match) {
-        return `https://www.notion.so/${match[1].replace(/-/g, '')}`;
+      const uuidPattern =
+        /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/g;
+      const matches = flat.match(uuidPattern);
+      if (matches) {
+        for (const relationId of matches) {
+          const url = `https://www.notion.so/${relationId.replace(/-/g, '')}`;
+          const blockEntry = blocks[relationId];
+          if (!blockEntry) {
+            console.log(`[Notion] relation ${relationId} 블록 없음`);
+            continue;
+          }
+
+          // unwrap를 통해 실제 블록 데이터 추출
+          const relBlock = unwrap(blockEntry);
+          if (relBlock) {
+            // 방법 1: properties.title
+            if (relBlock.properties?.title) {
+              const title = this.extractText(relBlock.properties.title);
+              if (title) return { title, url };
+            }
+            // 방법 2: 직접 title 배열 (collection_view_page 등)
+            if (Array.isArray(relBlock.title)) {
+              const title = this.extractText(relBlock.title);
+              if (title) return { title, url };
+            }
+            // 방법 3: properties 전체에서 첫 텍스트 추출
+            if (relBlock.properties) {
+              for (const [, pVal] of Object.entries(relBlock.properties)) {
+                const text = this.extractText(pVal);
+                if (text && text.length > 0 && text.length < 100) {
+                  return { title: text, url };
+                }
+              }
+            }
+          }
+
+          // 방법 4: raw value에서 탐색
+          const raw = blockEntry?.value || blockEntry;
+          if (raw?.properties?.title) {
+            const title = this.extractText(raw.properties.title);
+            if (title) return { title, url };
+          }
+          if (raw?.properties) {
+            for (const [, pVal] of Object.entries(raw.properties)) {
+              const text = this.extractText(pVal as any);
+              if (text && text.length > 0 && text.length < 100) {
+                return { title: text, url };
+              }
+            }
+          }
+
+          console.log(
+            `[Notion] relation ${relationId} 타이틀 추출 실패.`,
+            `type: ${relBlock?.type},`,
+            `keys: ${relBlock ? Object.keys(relBlock).join(',') : 'null'},`,
+            `props: ${relBlock?.properties ? Object.keys(relBlock.properties).join(',') : 'none'}`,
+          );
+          return { title: relationId, url };
+        }
+      }
+    } catch (e: any) {
+      console.log(`[Notion] extractRelationTitle 에러: ${e.message}`);
+    }
+    return { title: '', url: '' };
+  }
+
+  private extractStatus(propValue: any, schemaDef: any): string {
+    // 먼저 일반 텍스트 추출 시도
+    const text = this.extractText(propValue);
+    if (text) return text;
+
+    // status type의 경우 option ID로 저장됨 → schema options에서 이름 찾기
+    try {
+      const flat = JSON.stringify(propValue);
+      const options = schemaDef?.options || [];
+      const groups = schemaDef?.groups || [];
+
+      // groups 내의 optionIds에서도 찾기
+      const allOptions = [...options];
+      for (const group of groups) {
+        if (group.optionIds) {
+          for (const optId of group.optionIds) {
+            const opt = options.find((o: any) => o.id === optId);
+            if (opt) allOptions.push(opt);
+          }
+        }
+      }
+
+      for (const opt of allOptions) {
+        if (opt.id && flat.includes(opt.id)) {
+          return opt.value || '';
+        }
+      }
+
+      // property 값이 비어있거나 매칭 실패 → 기본 상태값 반환
+      // Notion status type은 첫 번째 그룹의 첫 번째 옵션이 기본값
+      if (groups.length > 0 && groups[0].optionIds?.length > 0) {
+        const defaultOptId = groups[0].optionIds[0];
+        const defaultOpt = options.find((o: any) => o.id === defaultOptId);
+        if (defaultOpt?.value) return defaultOpt.value;
+      }
+      if (options.length > 0 && options[0]?.value) {
+        return options[0].value;
       }
     } catch {}
     return '';

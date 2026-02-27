@@ -1,21 +1,10 @@
-import { Component, signal, computed } from '@angular/core';
+import { Component } from '@angular/core';
 import { FormsModule } from '@angular/forms';
 import { ElectronService } from '../../services/electron.service';
-
-interface SelectableSchedule {
-  id: string;
-  title: string;
-  project: string;
-  projectUrl: string;
-  category: string;
-  priority: string;
-  status: string;
-  date: string;
-  endDate: string;
-  assignees: string[];
-  childContent: string[];
-  checked: boolean;
-}
+import {
+  ReportStateService,
+  SelectableSchedule,
+} from '../../services/report-state.service';
 
 @Component({
   selector: 'app-report',
@@ -29,71 +18,90 @@ interface SelectableSchedule {
         <div class="form-row">
           <div class="form-group">
             <label class="field-label">시작일</label>
-            <input type="date" class="input" [(ngModel)]="startDate" />
+            <input type="date" class="input" [(ngModel)]="state.startDate" />
           </div>
           <div class="form-group">
             <label class="field-label">종료일</label>
-            <input type="date" class="input" [(ngModel)]="endDate" />
+            <input type="date" class="input" [(ngModel)]="state.endDate" />
           </div>
           <div class="form-group">
             <label class="field-label">유형</label>
             <div class="type-buttons">
               <button
                 class="type-btn"
-                [class.active]="reportType === 'MONDAY'"
-                (click)="reportType = 'MONDAY'"
+                [class.active]="state.reportType === 'MONDAY'"
+                (click)="state.reportType = 'MONDAY'"
               >
-                📅 월요일 (계획)
+                업무 계획 보고
               </button>
               <button
                 class="type-btn"
-                [class.active]="reportType === 'FRIDAY'"
-                (click)="reportType = 'FRIDAY'"
+                [class.active]="state.reportType === 'FRIDAY'"
+                (click)="state.reportType = 'FRIDAY'"
               >
-                ✅ 금요일 (결과)
+                업무 결과 보고
               </button>
             </div>
           </div>
         </div>
-        <button
-          class="btn btn-primary btn-generate"
-          (click)="fetchSchedules()"
-          [disabled]="loading()"
-        >
-          {{ loading() ? '⏳ 일정 조회 중...' : '🔍 일정 조회' }}
-        </button>
-        @if (errorMessage()) {
-          <p class="error-msg">{{ errorMessage() }}</p>
+        @if (state.loading()) {
+          <div class="btn-row">
+            <button class="btn btn-primary btn-generate loading-btn" disabled>
+              일정 조회 중...
+            </button>
+            <button class="btn btn-cancel" (click)="cancelFetch()">취소</button>
+          </div>
+        } @else {
+          <button
+            class="btn btn-primary btn-generate"
+            (click)="fetchSchedules()"
+          >
+            일정 조회
+          </button>
+        }
+        @if (state.errorMessage()) {
+          <p class="error-msg">{{ state.errorMessage() }}</p>
         }
       </section>
 
       <!-- 일정 선택 목록 -->
-      @if (showScheduleList()) {
+      @if (state.showScheduleList()) {
         <section class="card schedule-list-card">
           <div class="schedule-list-header">
             <div class="schedule-list-info">
               <span class="schedule-count">
-                <strong>{{ selectedCount() }}</strong
+                <strong>{{ state.selectedCount() }}</strong
                 >개 선택됨
                 <span class="schedule-total"
-                  >(총 {{ fetchedSchedules().length }}건)</span
+                  >(총 {{ state.fetchedSchedules().length }}건)</span
                 >
               </span>
             </div>
             <div class="schedule-list-actions">
               <button class="btn btn-text" (click)="toggleAll()">
-                {{ allSelected() ? '☐ 전체 해제' : '☑ 전체 선택' }}
+                {{ state.allSelected() ? '☐ 전체 해제' : '☑ 전체 선택' }}
               </button>
             </div>
           </div>
 
           <div class="schedule-list">
-            @for (s of fetchedSchedules(); track s.id) {
+            @for (s of state.fetchedSchedules(); track s.id; let i = $index) {
+              @if (
+                i === 0 || s.project !== state.fetchedSchedules()[i - 1].project
+              ) {
+                <div
+                  class="project-group-header"
+                  (click)="onGroupToggle(s.project)"
+                >
+                  📁 {{ s.project || '기타' }}
+                </div>
+              }
               <label class="schedule-row" [class.unchecked]="!s.checked">
                 <input
                   type="checkbox"
                   class="schedule-checkbox"
-                  [(ngModel)]="s.checked"
+                  [checked]="s.checked"
+                  (change)="onCheckChange(s.id, $event)"
                 />
                 <span
                   class="schedule-status"
@@ -101,76 +109,87 @@ interface SelectableSchedule {
                   >{{ s.status || '-' }}</span
                 >
                 <span class="schedule-title">{{ s.title }}</span>
-                <span class="schedule-project">{{ s.project }}</span>
-                <span class="schedule-date">{{ s.date }}</span>
+                <span class="schedule-date">{{
+                  formatDisplayDate(s.date)
+                }}</span>
               </label>
             }
           </div>
 
           <div class="schedule-list-footer">
-            <button class="btn btn-secondary" (click)="cancelGenerate()">
+            <button class="btn btn-secondary" (click)="cancelSelection()">
               취소
             </button>
-            <button
-              class="btn btn-primary"
-              (click)="confirmGenerate()"
-              [disabled]="generating() || selectedCount() === 0"
-            >
-              {{
-                generating()
-                  ? '⏳ 보고서 생성 중...'
-                  : '🚀 보고서 생성 (' + selectedCount() + '건)'
-              }}
-            </button>
+            @if (state.generating()) {
+              <div class="btn-row">
+                <button class="btn btn-primary" disabled>
+                  보고서 생성 중...
+                </button>
+                <button
+                  class="btn btn-cancel"
+                  (click)="cancelGenerateProcess()"
+                >
+                  취소
+                </button>
+              </div>
+            } @else {
+              <button
+                class="btn btn-primary"
+                (click)="confirmGenerate()"
+                [disabled]="state.selectedCount() === 0"
+              >
+                보고서 생성 ({{ state.selectedCount() }}건)
+              </button>
+            }
           </div>
         </section>
       }
 
       <!-- 결과 (에디터 + 미리보기) -->
-      @if (reportMarkdown()) {
+      @if (state.reportMarkdown()) {
         <section class="card result-card">
           <div class="result-header">
             <div class="tab-buttons">
               <button
                 class="tab-btn"
-                [class.active]="activeTab() === 'edit'"
-                (click)="activeTab.set('edit')"
+                [class.active]="state.activeTab() === 'edit'"
+                (click)="state.activeTab.set('edit')"
               >
                 ✏️ 편집
               </button>
               <button
                 class="tab-btn"
-                [class.active]="activeTab() === 'preview'"
-                (click)="activeTab.set('preview')"
+                [class.active]="state.activeTab() === 'preview'"
+                (click)="state.activeTab.set('preview')"
               >
                 👁️ 미리보기
               </button>
             </div>
             <div class="action-buttons">
               <button class="btn btn-secondary" (click)="copyToClipboard()">
-                {{ copied() ? '✅ 복사됨!' : '📋 마크다운 복사' }}
+                {{ state.copied() ? '✅ 복사됨!' : '📋 마크다운 복사' }}
               </button>
             </div>
           </div>
 
           <div class="result-body">
-            @if (activeTab() === 'edit') {
+            @if (state.activeTab() === 'edit') {
               <textarea
                 class="editor"
-                [(ngModel)]="reportMarkdown"
+                [(ngModel)]="state.reportMarkdown"
                 (ngModelChange)="onMarkdownChange($event)"
               ></textarea>
             } @else {
-              <div class="preview" [innerHTML]="previewHtml()"></div>
+              <div class="preview" [innerHTML]="state.previewHtml()"></div>
             }
           </div>
         </section>
 
         <!-- 일정 요약 -->
-        @if (scheduleCount() > 0) {
+        @if (state.scheduleCount() > 0) {
           <section class="card info-card">
             <p class="info-text">
-              📊 총 <strong>{{ scheduleCount() }}</strong
+              📊 총 <strong>{{ state.scheduleCount() }}</strong
               >개 일정이 반영되었습니다.
             </p>
           </section>
@@ -234,8 +253,10 @@ interface SelectableSchedule {
       .type-buttons {
         display: flex;
         gap: 8px;
+        width: 100%;
       }
       .type-btn {
+        flex: 1;
         padding: 8px 14px;
         background: #0f0f1a;
         border: 1px solid #2a2a4a;
@@ -296,10 +317,31 @@ interface SelectableSchedule {
         color: #667eea;
         border-color: #667eea;
       }
+      .btn-cancel {
+        background: rgba(255, 99, 99, 0.15);
+        color: #ff6363;
+        padding: 12px 20px;
+        font-size: 14px;
+      }
+      .btn-cancel:hover {
+        background: rgba(255, 99, 99, 0.25);
+      }
       .btn-generate {
         padding: 12px 28px;
         font-size: 15px;
         width: 100%;
+      }
+      .btn-row {
+        display: flex;
+        gap: 8px;
+        width: 100%;
+      }
+      .btn-row .btn-generate,
+      .btn-row .loading-btn {
+        flex: 1;
+      }
+      .btn-row .btn-cancel {
+        flex-shrink: 0;
       }
       .error-msg {
         color: #ff6363;
@@ -348,6 +390,21 @@ interface SelectableSchedule {
         border-radius: 8px;
         max-height: 400px;
         overflow-y: auto;
+      }
+      .project-group-header {
+        padding: 8px 14px;
+        font-size: 12px;
+        font-weight: 700;
+        color: #667eea;
+        background: rgba(102, 126, 234, 0.08);
+        border-bottom: 1px solid #2a2a4a;
+        letter-spacing: 0.5px;
+        cursor: pointer;
+        user-select: none;
+        transition: background 0.15s;
+      }
+      .project-group-header:hover {
+        background: rgba(102, 126, 234, 0.15);
       }
       .schedule-row {
         display: flex;
@@ -398,15 +455,6 @@ interface SelectableSchedule {
         text-overflow: ellipsis;
         white-space: nowrap;
       }
-      .schedule-project {
-        color: #667eea;
-        font-size: 11px;
-        white-space: nowrap;
-        max-width: 120px;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        flex-shrink: 0;
-      }
       .schedule-date {
         color: #6868aa;
         font-size: 12px;
@@ -422,6 +470,9 @@ interface SelectableSchedule {
       .schedule-list-footer .btn {
         padding: 10px 24px;
         font-size: 14px;
+      }
+      .schedule-list-footer .btn-row {
+        width: auto;
       }
 
       .result-header {
@@ -534,146 +585,181 @@ interface SelectableSchedule {
   ],
 })
 export class ReportPage {
-  protected startDate = '';
-  protected endDate = '';
-  protected reportType: 'MONDAY' | 'FRIDAY' = 'FRIDAY';
-  protected reportMarkdown = signal('');
-  protected loading = signal(false);
-  protected generating = signal(false);
-  protected errorMessage = signal('');
-  protected activeTab = signal<'edit' | 'preview'>('edit');
-  protected copied = signal(false);
-  protected scheduleCount = signal(0);
-  protected previewHtml = signal('');
-  protected showScheduleList = signal(false);
-  protected fetchedSchedules = signal<SelectableSchedule[]>([]);
-
-  protected selectedCount = computed(
-    () => this.fetchedSchedules().filter((s) => s.checked).length,
-  );
-
-  protected allSelected = computed(
-    () =>
-      this.fetchedSchedules().length > 0 &&
-      this.fetchedSchedules().every((s) => s.checked),
-  );
-
-  constructor(private electron: ElectronService) {
-    const now = new Date();
-    const dayOfWeek = now.getDay();
-    const monday = new Date(now);
-    monday.setDate(now.getDate() - (dayOfWeek === 0 ? 6 : dayOfWeek - 1));
-    const friday = new Date(monday);
-    friday.setDate(monday.getDate() + 4);
-
-    this.startDate = this.formatDate(monday);
-    this.endDate = this.formatDate(friday);
+  constructor(
+    private electron: ElectronService,
+    protected state: ReportStateService,
+  ) {
+    state.initDates();
   }
 
   /**
    * Step 1: 일정 조회 → 체크박스 목록 표시
    */
   async fetchSchedules() {
-    if (!this.startDate || !this.endDate) {
-      this.errorMessage.set('시작일과 종료일을 입력해주세요.');
+    if (!this.state.startDate || !this.state.endDate) {
+      this.state.errorMessage.set('시작일과 종료일을 입력해주세요.');
       return;
     }
 
-    this.loading.set(true);
-    this.errorMessage.set('');
-    this.showScheduleList.set(false);
-    this.reportMarkdown.set('');
+    this.state.loading.set(true);
+    this.state.errorMessage.set('');
+    this.state.showScheduleList.set(false);
+    this.state.reportMarkdown.set('');
 
     try {
       const result = await this.electron.fetchSchedules({
-        startDate: this.startDate,
-        endDate: this.endDate,
-        type: this.reportType,
+        startDate: this.state.startDate,
+        endDate: this.state.endDate,
+        type: this.state.reportType,
       });
+
+      // 취소됐으면 결과 무시
+      if (this.state.isFetchAborted()) return;
 
       if (result?.success) {
         const schedules: SelectableSchedule[] = (result.data || []).map(
-          (s: any) => ({ ...s, checked: true }),
+          (s: any) => ({
+            ...s,
+            checked:
+              this.state.reportType === 'FRIDAY' ? s.status === '완료' : true,
+          }),
         );
-        this.fetchedSchedules.set(schedules);
+
+        // 프로젝트별 그룹화 후 그룹 내 날짜순 정렬
+        const grouped = new Map<string, SelectableSchedule[]>();
+        for (const s of schedules) {
+          const key = s.project || '기타';
+          if (!grouped.has(key)) grouped.set(key, []);
+          grouped.get(key)!.push(s);
+        }
+        const sorted = Array.from(grouped.values()).flatMap((items) =>
+          items.sort((a, b) => a.date.localeCompare(b.date)),
+        );
+        this.state.fetchedSchedules.set(sorted);
 
         if (schedules.length === 0) {
-          this.errorMessage.set('해당 기간에 일정이 없습니다.');
+          this.state.errorMessage.set('해당 기간에 일정이 없습니다.');
         } else {
-          this.showScheduleList.set(true);
+          this.state.showScheduleList.set(true);
         }
       } else {
-        this.errorMessage.set(result?.error || '일정 조회 실패');
+        this.state.errorMessage.set(result?.error || '일정 조회 실패');
       }
     } catch (e: any) {
-      this.errorMessage.set(e.message || '오류가 발생했습니다.');
+      if (!this.state.isFetchAborted()) {
+        this.state.errorMessage.set(e.message || '오류가 발생했습니다.');
+      }
     }
 
-    this.loading.set(false);
+    this.state.loading.set(false);
   }
 
   /**
    * 전체 선택 / 해제 토글
    */
   toggleAll() {
-    const newValue = !this.allSelected();
-    const updated = this.fetchedSchedules().map((s) => ({
+    const newValue = !this.state.allSelected();
+    const updated = this.state.fetchedSchedules().map((s) => ({
       ...s,
       checked: newValue,
     }));
-    this.fetchedSchedules.set(updated);
+    this.state.fetchedSchedules.set(updated);
   }
 
   /**
    * Step 2: 선택된 일정으로 보고서 생성
    */
   async confirmGenerate() {
-    const selected = this.fetchedSchedules().filter((s) => s.checked);
+    const selected = this.state.fetchedSchedules().filter((s) => s.checked);
     if (selected.length === 0) return;
 
-    this.generating.set(true);
-    this.errorMessage.set('');
+    this.state.generating.set(true);
+    this.state.errorMessage.set('');
 
     try {
       const result = await this.electron.generateReport({
         schedules: selected,
-        type: this.reportType,
-        startDate: this.startDate,
-        endDate: this.endDate,
+        type: this.state.reportType,
+        startDate: this.state.startDate,
+        endDate: this.state.endDate,
       });
 
+      // 취소됐으면 결과 무시
+      if (this.state.isGenerateAborted()) return;
+
       if (result?.success) {
-        this.reportMarkdown.set(result.data.markdown);
-        this.scheduleCount.set(result.data.schedules?.length || 0);
-        this.previewHtml.set(this.markdownToHtml(result.data.markdown));
-        this.showScheduleList.set(false);
+        this.state.reportMarkdown.set(result.data.markdown);
+        this.state.scheduleCount.set(result.data.schedules?.length || 0);
+        this.state.previewHtml.set(this.markdownToHtml(result.data.markdown));
+        this.state.showScheduleList.set(false);
       } else {
-        this.errorMessage.set(result?.error || '보고서 생성 실패');
+        this.state.errorMessage.set(result?.error || '보고서 생성 실패');
       }
     } catch (e: any) {
-      this.errorMessage.set(e.message || '오류가 발생했습니다.');
+      if (!this.state.isGenerateAborted()) {
+        this.state.errorMessage.set(e.message || '오류가 발생했습니다.');
+      }
     }
 
-    this.generating.set(false);
+    this.state.generating.set(false);
   }
 
-  cancelGenerate() {
-    this.showScheduleList.set(false);
-    this.fetchedSchedules.set([]);
+  cancelFetch() {
+    this.state.cancelFetch();
+  }
+
+  cancelGenerateProcess() {
+    this.state.cancelGenerate();
+  }
+
+  cancelSelection() {
+    this.state.showScheduleList.set(false);
+    this.state.fetchedSchedules.set([]);
+  }
+
+  onGroupToggle(project: string) {
+    const key = project || '기타';
+    const group = this.state
+      .fetchedSchedules()
+      .filter((s) => (s.project || '기타') === key);
+    const allChecked = group.every((s) => s.checked);
+    const updated = this.state
+      .fetchedSchedules()
+      .map((s) =>
+        (s.project || '기타') === key ? { ...s, checked: !allChecked } : s,
+      );
+    this.state.fetchedSchedules.set(updated);
   }
 
   onMarkdownChange(value: string) {
-    this.previewHtml.set(this.markdownToHtml(value));
+    this.state.previewHtml.set(this.markdownToHtml(value));
+  }
+
+  onCheckChange(id: string, event: Event) {
+    const checked = (event.target as HTMLInputElement).checked;
+    const updated = this.state
+      .fetchedSchedules()
+      .map((s) => (s.id === id ? { ...s, checked } : s));
+    this.state.fetchedSchedules.set(updated);
+  }
+
+  formatDisplayDate(dateStr: string): string {
+    if (!dateStr) return '-';
+    const d = new Date(dateStr);
+    const days = ['일', '월', '화', '수', '목', '금', '토'];
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${mm}.${dd} (${days[d.getDay()]})`;
   }
 
   async copyToClipboard() {
-    const markdown = this.reportMarkdown();
+    const markdown = this.state.reportMarkdown();
     if (!markdown) return;
 
     try {
       await navigator.clipboard.writeText(markdown);
-      this.copied.set(true);
-      setTimeout(() => this.copied.set(false), 2000);
+      this.state.copied.set(true);
+      setTimeout(() => this.state.copied.set(false), 2000);
     } catch {
       const textarea = document.createElement('textarea');
       textarea.value = markdown;
@@ -681,16 +767,9 @@ export class ReportPage {
       textarea.select();
       document.execCommand('copy');
       document.body.removeChild(textarea);
-      this.copied.set(true);
-      setTimeout(() => this.copied.set(false), 2000);
+      this.state.copied.set(true);
+      setTimeout(() => this.state.copied.set(false), 2000);
     }
-  }
-
-  private formatDate(date: Date): string {
-    const y = date.getFullYear();
-    const m = String(date.getMonth() + 1).padStart(2, '0');
-    const d = String(date.getDate()).padStart(2, '0');
-    return `${y}-${m}-${d}`;
   }
 
   private markdownToHtml(md: string): string {
