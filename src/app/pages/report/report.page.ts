@@ -1,5 +1,6 @@
 import { Component } from '@angular/core';
 import { FormsModule } from '@angular/forms';
+import { marked } from 'marked';
 import { ElectronService } from '../../services/electron.service';
 import {
   ReportStateService,
@@ -117,9 +118,11 @@ import {
           </div>
 
           <div class="schedule-list-footer">
-            <button class="btn btn-secondary" (click)="cancelSelection()">
-              취소
-            </button>
+            @if (!state.generating()) {
+              <button class="btn btn-secondary" (click)="cancelSelection()">
+                취소
+              </button>
+            }
             @if (state.generating()) {
               <div class="btn-row">
                 <button class="btn btn-primary" disabled>
@@ -508,7 +511,7 @@ import {
       }
       .editor {
         width: 100%;
-        min-height: 400px;
+        height: 450px;
         padding: 16px;
         background: #0f0f1a;
         border: 1px solid #2a2a4a;
@@ -517,7 +520,7 @@ import {
         font-family: 'Consolas', 'Monaco', monospace;
         font-size: 13px;
         line-height: 1.7;
-        resize: vertical;
+        resize: none;
         outline: none;
         box-sizing: border-box;
       }
@@ -529,7 +532,8 @@ import {
         background: #0f0f1a;
         border: 1px solid #2a2a4a;
         border-radius: 8px;
-        min-height: 400px;
+        height: 450px;
+        overflow-y: auto;
         font-size: 14px;
         line-height: 1.8;
         color: #d0d0e0;
@@ -566,8 +570,15 @@ import {
         padding-left: 20px;
         margin: 4px 0;
       }
-      .preview :deep(li) {
+      .preview :deep(ul.sub-list) {
+        padding-left: 20px;
         margin: 2px 0;
+      }
+      .preview :deep(li) {
+        margin: 3px 0;
+      }
+      .preview :deep(p) {
+        margin: 6px 0;
       }
       .info-card {
         background: rgba(102, 126, 234, 0.08);
@@ -773,21 +784,107 @@ export class ReportPage {
   }
 
   private markdownToHtml(md: string): string {
-    let html = md
-      .replace(/^#### (.+)$/gm, '<h4>$1</h4>')
-      .replace(/^### (.+)$/gm, '<h3>$1</h3>')
-      .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    const lines = md.split('\n');
+    const result: string[] = [];
+    let inList = false;
+    let inSubList = false;
+
+    for (const line of lines) {
+      // 제목
+      if (line.startsWith('#### ')) {
+        if (inSubList) {
+          result.push('</ul>');
+          inSubList = false;
+        }
+        if (inList) {
+          result.push('</ul>');
+          inList = false;
+        }
+        result.push(`<h4>${this.inlineFormat(line.slice(5))}</h4>`);
+      } else if (line.startsWith('### ')) {
+        if (inSubList) {
+          result.push('</ul>');
+          inSubList = false;
+        }
+        if (inList) {
+          result.push('</ul>');
+          inList = false;
+        }
+        result.push(`<h3>${this.inlineFormat(line.slice(4))}</h3>`);
+      } else if (line.startsWith('## ')) {
+        if (inSubList) {
+          result.push('</ul>');
+          inSubList = false;
+        }
+        if (inList) {
+          result.push('</ul>');
+          inList = false;
+        }
+        result.push(`<h2>${this.inlineFormat(line.slice(3))}</h2>`);
+      }
+      // 하위 항목 (4칸 들여쓰기)
+      else if (/^    - /.test(line)) {
+        if (!inList) {
+          result.push('<ul>');
+          inList = true;
+        }
+        if (!inSubList) {
+          result.push('<ul class="sub-list">');
+          inSubList = true;
+        }
+        result.push(
+          `<li>${this.inlineFormat(line.replace(/^    - /, ''))}</li>`,
+        );
+      }
+      // 상위 항목
+      else if (/^- /.test(line)) {
+        if (inSubList) {
+          result.push('</ul>');
+          inSubList = false;
+        }
+        if (!inList) {
+          result.push('<ul>');
+          inList = true;
+        }
+        result.push(`<li>${this.inlineFormat(line.slice(2))}</li>`);
+      }
+      // 빈 줄
+      else if (line.trim() === '') {
+        if (inSubList) {
+          result.push('</ul>');
+          inSubList = false;
+        }
+        if (inList) {
+          result.push('</ul>');
+          inList = false;
+        }
+      }
+      // 일반 텍스트
+      else {
+        if (inSubList) {
+          result.push('</ul>');
+          inSubList = false;
+        }
+        if (inList) {
+          result.push('</ul>');
+          inList = false;
+        }
+        result.push(`<p>${this.inlineFormat(line)}</p>`);
+      }
+    }
+
+    if (inSubList) result.push('</ul>');
+    if (inList) result.push('</ul>');
+
+    return result.join('\n');
+  }
+
+  private inlineFormat(text: string): string {
+    return text
       .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
       .replace(
         /\[([^\]]+)\]\(([^)]+)\)/g,
         '<a href="$2" target="_blank">$1</a>',
-      )
-      .replace(/^    - (.+)$/gm, '<li class="sub">$1</li>')
-      .replace(/^- (.+)$/gm, '<li>$1</li>');
-
-    html = html.replace(/((?:<li[^>]*>.*<\/li>\n?)+)/g, '<ul>$1</ul>');
-    html = html.replace(/\n\n/g, '<br/>');
-
-    return html;
+      );
   }
 }
