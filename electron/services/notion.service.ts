@@ -618,6 +618,7 @@ export class NotionService {
     const contents: string[] = [];
     const blockMap = page.block || {};
 
+    // 구조화된 항목(할일, 목록)만 수집. 일반 텍스트/헤더는 참고자료일 수 있어 제외.
     for (const [, blockEntry] of Object.entries(blockMap) as any[]) {
       const value = unwrap(blockEntry);
       if (!value || value.id === pageId) continue;
@@ -629,17 +630,10 @@ export class NotionService {
       if (type === 'to_do') {
         const checked = value.properties?.checked?.[0]?.[0] === 'Yes';
         contents.push(`${checked ? '☑' : '☐'} ${text}`);
-      } else if (
-        [
-          'text',
-          'bulleted_list',
-          'numbered_list',
-          'sub_header',
-          'header',
-        ].includes(type)
-      ) {
+      } else if (type === 'bulleted_list' || type === 'numbered_list') {
         contents.push(text);
       }
+      // text, header, sub_header 등은 참고자료이므로 보고서에 포함하지 않음
     }
 
     return contents;

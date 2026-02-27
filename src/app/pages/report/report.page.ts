@@ -510,8 +510,10 @@ import {
         gap: 8px;
       }
       .editor {
+        display: block;
         width: 100%;
         height: 450px;
+        margin: 0;
         padding: 16px;
         background: #0f0f1a;
         border: 1px solid #2a2a4a;
@@ -538,6 +540,9 @@ import {
         line-height: 1.8;
         color: #d0d0e0;
         box-sizing: border-box;
+      }
+      :host ::ng-deep .preview > *:last-child {
+        margin-bottom: 0;
       }
       :host ::ng-deep .preview h1 {
         font-size: 20px;
