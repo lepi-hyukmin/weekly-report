@@ -388,7 +388,7 @@ import {
         background: #0f0f1a;
         border: 1px solid #2a2a4a;
         border-radius: 8px;
-        max-height: 400px;
+        max-height: 550px;
         overflow-y: auto;
       }
       .project-group-header {
