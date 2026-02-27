@@ -722,11 +722,11 @@ export class ReportPage {
     const group = this.state
       .fetchedSchedules()
       .filter((s) => (s.project || '기타') === key);
-    const allChecked = group.every((s) => s.checked);
+    const anyChecked = group.some((s) => s.checked);
     const updated = this.state
       .fetchedSchedules()
       .map((s) =>
-        (s.project || '기타') === key ? { ...s, checked: !allChecked } : s,
+        (s.project || '기타') === key ? { ...s, checked: !anyChecked } : s,
       );
     this.state.fetchedSchedules.set(updated);
   }
