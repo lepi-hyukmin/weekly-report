@@ -1,5 +1,7 @@
 import { Injectable, signal, computed } from '@angular/core';
 
+export type ReportType = 'WORK' | 'PROJECT';
+
 export interface SelectableSchedule {
   id: string;
   title: string;
@@ -25,6 +27,12 @@ export interface GeneratedProjectReport {
   pendingCount: number;
 }
 
+export interface GeneratedWorkReport {
+  markdown: string;
+  previewHtml: string;
+  scheduleCount: number;
+}
+
 export interface IssueDraft {
   id: string;
   content: string;
@@ -44,7 +52,7 @@ export class ReportStateService {
   // 폼
   startDate = '';
   endDate = '';
-  reportType: 'MONDAY' | 'FRIDAY' = 'MONDAY';
+  reportType: ReportType = 'WORK';
 
   // 상태
   readonly loading = signal(false);
@@ -52,6 +60,7 @@ export class ReportStateService {
   readonly errorMessage = signal('');
   readonly showScheduleList = signal(false);
   readonly fetchedSchedules = signal<SelectableSchedule[]>([]);
+  readonly workReport = signal<GeneratedWorkReport | null>(null);
   readonly generatedReports = signal<GeneratedProjectReport[]>([]);
   readonly activeProjectName = signal('');
   readonly activeTab = signal<'edit' | 'preview'>('preview');
@@ -78,6 +87,8 @@ export class ReportStateService {
   readonly hasGeneratedReports = computed(
     () => this.generatedReports().length > 0,
   );
+
+  readonly hasWorkReport = computed(() => this.workReport() !== null);
 
   readonly activeReport = computed<GeneratedProjectReport | null>(() => {
     const reports = this.generatedReports();
@@ -146,13 +157,23 @@ export class ReportStateService {
   }
 
   setGeneratedReports(reports: GeneratedProjectReport[]): void {
+    this.workReport.set(null);
     this.generatedReports.set(reports);
     this.activeProjectName.set(reports[0]?.projectName || '');
     this.activeTab.set('preview');
     this.copied.set(false);
   }
 
+  setWorkReport(report: GeneratedWorkReport): void {
+    this.workReport.set(report);
+    this.generatedReports.set([]);
+    this.activeProjectName.set('');
+    this.activeTab.set('preview');
+    this.copied.set(false);
+  }
+
   clearGeneratedReports(): void {
+    this.workReport.set(null);
     this.generatedReports.set([]);
     this.activeProjectName.set('');
     this.activeTab.set('preview');
@@ -175,6 +196,17 @@ export class ReportStateService {
           : report,
       ),
     );
+  }
+
+  updateWorkReport(markdown: string, previewHtml: string): void {
+    const current = this.workReport();
+    if (!current) return;
+
+    this.workReport.set({
+      ...current,
+      markdown,
+      previewHtml,
+    });
   }
 
   openIssueModal(selectedSchedules: SelectableSchedule[]): void {

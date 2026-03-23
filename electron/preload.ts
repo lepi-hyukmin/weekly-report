@@ -31,7 +31,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     type: string;
     startDate: string;
     endDate: string;
-    issues: Array<{ id: string; projectName: string; content: string }>;
+    issues?: Array<{ id: string; projectName: string; content: string }>;
   }) => ipcRenderer.invoke('report:generate', params),
 
   // 기타
@@ -67,7 +67,7 @@ declare global {
         type: string;
         startDate: string;
         endDate: string;
-        issues: Array<{ id: string; projectName: string; content: string }>;
+        issues?: Array<{ id: string; projectName: string; content: string }>;
       }) => Promise<any>;
       openExternal: (url: string) => Promise<any>;
     };

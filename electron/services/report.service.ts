@@ -1,5 +1,16 @@
 import { NotionSchedule } from './notion.service';
 
+interface WorkProjectGroup {
+  projectName: string;
+  projectUrl: string;
+  categories: WorkCategoryGroup[];
+}
+
+interface WorkCategoryGroup {
+  categoryName: string;
+  schedules: NotionSchedule[];
+}
+
 export interface ProjectGroup {
   projectName: string;
   projectUrl: string;
@@ -25,6 +36,47 @@ export interface ReportIssueInput {
  * 보고서 생성 엔진
  */
 export class ReportService {
+  generateWorkReport(
+    schedules: NotionSchedule[],
+    startDate: string,
+    endDate: string,
+    summary: string,
+    planDraft: string,
+  ): string {
+    const detailSection = this.buildWorkDetailSection(schedules);
+    const reportLines: string[] = [];
+
+    reportLines.push('## 1. 3줄 요약');
+    reportLines.push('');
+    reportLines.push(
+      summary.trim() || '- **상황:** 없음\n- **진행:** 없음\n- **요청:** 없음',
+    );
+    reportLines.push('');
+    reportLines.push('## 2. 상세 보고');
+    reportLines.push('');
+    reportLines.push(`- **발생 시각/기간: ${startDate} ~ ${endDate}**`);
+    reportLines.push('');
+    reportLines.push('- **상세 내용:**');
+    reportLines.push('');
+    reportLines.push(detailSection);
+    reportLines.push('');
+    reportLines.push('## 3. 의사결정 요청 및 향후 계획');
+    reportLines.push('');
+    reportLines.push(planDraft.trim() || '- 없음');
+    reportLines.push('');
+    reportLines.push('## 4. 첨부 자료');
+    reportLines.push('');
+    reportLines.push('- ');
+    reportLines.push('');
+
+    return reportLines.join('\n');
+  }
+
+  buildWorkDetailSection(schedules: NotionSchedule[]): string {
+    const projectGroups = this.groupWorkByProject(schedules);
+    return this.renderWorkDetailSection(projectGroups);
+  }
+
   buildProjectGroups(schedules: NotionSchedule[]): ProjectGroup[] {
     const projectMap = new Map<string, ProjectGroup>();
 
@@ -153,6 +205,96 @@ export class ReportService {
     lines.push('');
 
     return lines.join('\n');
+  }
+
+  private groupWorkByProject(schedules: NotionSchedule[]): WorkProjectGroup[] {
+    const projectMap = new Map<string, WorkProjectGroup>();
+
+    for (const schedule of schedules) {
+      const projectName = schedule.project || '기타';
+      const projectUrl = schedule.projectUrl || '';
+
+      if (!projectMap.has(projectName)) {
+        projectMap.set(projectName, {
+          projectName,
+          projectUrl,
+          categories: [],
+        });
+      }
+
+      const group = projectMap.get(projectName)!;
+      const categoryName = schedule.category || '';
+
+      let categoryGroup = group.categories.find(
+        (category) => category.categoryName === categoryName,
+      );
+
+      if (!categoryGroup) {
+        categoryGroup = { categoryName, schedules: [] };
+        group.categories.push(categoryGroup);
+      }
+
+      categoryGroup.schedules.push(schedule);
+    }
+
+    return Array.from(projectMap.values());
+  }
+
+  private renderWorkDetailSection(projectGroups: WorkProjectGroup[]): string {
+    const lines: string[] = [];
+
+    for (const project of projectGroups) {
+      lines.push(`### ${project.projectName}`);
+      lines.push('');
+
+      const totalSchedules = project.categories.reduce(
+        (sum, category) => sum + category.schedules.length,
+        0,
+      );
+      const hasMultipleCategories =
+        project.categories.filter((category) => category.categoryName).length >
+        1;
+      const needsCategoryGrouping = hasMultipleCategories && totalSchedules > 1;
+
+      if (needsCategoryGrouping) {
+        for (const category of project.categories) {
+          if (category.categoryName) {
+            lines.push(`#### ${category.categoryName}`);
+            lines.push('');
+          }
+
+          for (const schedule of category.schedules) {
+            lines.push(...this.renderWorkSchedule(schedule));
+          }
+
+          lines.push('');
+        }
+      } else {
+        const allSchedules = project.categories.flatMap(
+          (category) => category.schedules,
+        );
+
+        for (const schedule of allSchedules) {
+          lines.push(...this.renderWorkSchedule(schedule));
+        }
+
+        lines.push('');
+      }
+    }
+
+    return lines.join('\n');
+  }
+
+  private renderWorkSchedule(schedule: NotionSchedule): string[] {
+    const lines: string[] = [];
+
+    lines.push(`- ${schedule.title}`);
+
+    for (const child of schedule.childContent) {
+      lines.push(`    - ${child}`);
+    }
+
+    return lines;
   }
 
   private renderCompletedLines(

@@ -48,7 +48,7 @@ export class ElectronService {
     type: string;
     startDate: string;
     endDate: string;
-    issues: Array<{ id: string; projectName: string; content: string }>;
+    issues?: Array<{ id: string; projectName: string; content: string }>;
   }) {
     return this.api?.generateReport(params);
   }

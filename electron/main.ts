@@ -134,6 +134,7 @@ function registerIpcHandlers(): void {
           return {
             success: true,
             data: {
+              workReport: null,
               projectReports: [],
               excludedScheduleCount: 0,
             },
@@ -157,6 +158,45 @@ function registerIpcHandlers(): void {
         }
 
         const authorName = loadConfig().notionUserName || '-';
+
+        if (type === 'WORK') {
+          const detailSection = reportService.buildWorkDetailSection(schedules);
+          let summary = '- **상황:** 없음\n- **진행:** 없음\n- **요청:** 없음';
+          let planDraft = '- 없음';
+
+          try {
+            summary = await geminiService.generateSummary(detailSection);
+          } catch (err) {
+            console.error('[Report] 3줄 요약 생성 실패, 기본 문구 사용:', err);
+          }
+
+          try {
+            planDraft = await geminiService.generatePlanDraft(detailSection);
+          } catch (err) {
+            console.error('[Report] 향후 계획 생성 실패, 기본 문구 사용:', err);
+          }
+
+          const markdown = reportService.generateWorkReport(
+            schedules,
+            startDate,
+            endDate,
+            summary,
+            planDraft,
+          );
+
+          return {
+            success: true,
+            data: {
+              workReport: {
+                markdown,
+                scheduleCount: schedules.length,
+              },
+              projectReports: [],
+              excludedScheduleCount: 0,
+            },
+          };
+        }
+
         const projectGroups = reportService.buildProjectGroups(schedules);
         const completedSummaryMap = new Map<string, string[]>();
         const issueMap = new Map<string, ReportIssueInput[]>();
@@ -223,6 +263,7 @@ function registerIpcHandlers(): void {
         return {
           success: true,
           data: {
+            workReport: null,
             projectReports,
             excludedScheduleCount,
           },

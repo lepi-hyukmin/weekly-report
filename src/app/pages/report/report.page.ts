@@ -4,6 +4,7 @@ import { marked } from 'marked';
 import { ElectronService } from '../../services/electron.service';
 import {
   ReportStateService,
+  ReportType,
   SelectableSchedule,
 } from '../../services/report-state.service';
 
@@ -43,19 +44,27 @@ import {
             <div class="type-buttons">
               <button
                 class="type-btn"
-                [class.active]="state.reportType === 'MONDAY'"
-                (click)="state.reportType = 'MONDAY'"
-                [disabled]="state.loading() || state.generating()"
+                [class.active]="state.reportType === 'WORK'"
+                (click)="setReportType('WORK')"
+                [disabled]="
+                  state.loading() ||
+                  state.generating() ||
+                  state.showScheduleList()
+                "
               >
-                업무 계획 보고
+                업무 보고서
               </button>
               <button
                 class="type-btn"
-                [class.active]="state.reportType === 'FRIDAY'"
-                (click)="state.reportType = 'FRIDAY'"
-                [disabled]="state.loading() || state.generating()"
+                [class.active]="state.reportType === 'PROJECT'"
+                (click)="setReportType('PROJECT')"
+                [disabled]="
+                  state.loading() ||
+                  state.generating() ||
+                  state.showScheduleList()
+                "
               >
-                업무 결과 보고
+                프로젝트 보고서
               </button>
             </div>
           </div>
@@ -166,6 +175,64 @@ import {
       }
 
       <!-- 결과 (에디터 + 미리보기) -->
+      @if (state.hasWorkReport()) {
+        <section class="card result-card">
+          @if (state.workReport(); as workReport) {
+            <div class="result-header">
+              <div class="project-report-summary">
+                <div class="project-report-title">업무 보고서</div>
+                <div class="project-report-meta">
+                  총 {{ workReport.scheduleCount }}건 일정 반영
+                </div>
+              </div>
+              <div class="result-header-right">
+                <div class="tab-buttons">
+                  <button
+                    class="tab-btn"
+                    [class.active]="state.activeTab() === 'preview'"
+                    (click)="state.activeTab.set('preview')"
+                  >
+                    👁️ 미리보기
+                  </button>
+                  <button
+                    class="tab-btn"
+                    [class.active]="state.activeTab() === 'edit'"
+                    (click)="state.activeTab.set('edit')"
+                  >
+                    ✏️ 편집
+                  </button>
+                </div>
+                <div class="action-buttons">
+                  <button class="btn btn-secondary" (click)="copyToClipboard()">
+                    {{ state.copied() ? '✅ 복사됨!' : '📋 마크다운 복사' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="result-body">
+              @if (state.activeTab() === 'edit') {
+                <textarea
+                  class="editor"
+                  [ngModel]="workReport.markdown"
+                  (ngModelChange)="onWorkMarkdownChange($event)"
+                ></textarea>
+              } @else {
+                <div class="preview" [innerHTML]="workReport.previewHtml"></div>
+              }
+            </div>
+          }
+        </section>
+
+        <section class="card info-card">
+          <p class="info-text">
+            📊 총 <strong>1</strong>개 업무 보고서에
+            <strong>{{ state.workReport()?.scheduleCount || 0 }}</strong
+            >개 일정이 반영되었습니다.
+          </p>
+        </section>
+      }
+
       @if (state.hasGeneratedReports()) {
         <section class="card result-card">
           <div class="project-report-tabs">
@@ -230,7 +297,7 @@ import {
                 <textarea
                   class="editor"
                   [ngModel]="activeReport.markdown"
-                  (ngModelChange)="onMarkdownChange($event)"
+                  (ngModelChange)="onProjectMarkdownChange($event)"
                 ></textarea>
               } @else {
                 <div
@@ -890,12 +957,7 @@ export class ReportPage {
         const schedules: SelectableSchedule[] = (result.data || []).map(
           (s: any) => ({
             ...s,
-            checked:
-              (s.project || '기타') === '기타'
-                ? false
-                : this.state.reportType === 'FRIDAY'
-                  ? s.status === '완료'
-                  : true,
+            checked: (s.project || '기타') !== '기타',
           }),
         );
 
@@ -953,7 +1015,46 @@ export class ReportPage {
     if (selected.length === 0) return;
 
     this.state.errorMessage.set('');
-    this.state.openIssueModal(selected);
+
+    if (this.state.reportType === 'PROJECT') {
+      this.state.openIssueModal(selected);
+      return;
+    }
+
+    void this.generateWorkReport(selected);
+  }
+
+  private async generateWorkReport(selected: SelectableSchedule[]) {
+    this.state.generating.set(true);
+    this.state.errorMessage.set('');
+
+    try {
+      const result = await this.electron.generateReport({
+        schedules: selected,
+        type: this.state.reportType,
+        startDate: this.state.startDate,
+        endDate: this.state.endDate,
+        issues: [],
+      });
+
+      if (this.state.isGenerateAborted()) return;
+
+      if (result?.success && result.data?.workReport) {
+        this.state.setWorkReport({
+          ...result.data.workReport,
+          previewHtml: this.markdownToHtml(result.data.workReport.markdown),
+        });
+        this.state.showScheduleList.set(false);
+      } else {
+        this.state.errorMessage.set(result?.error || '보고서 생성 실패');
+      }
+    } catch (e: any) {
+      if (!this.state.isGenerateAborted()) {
+        this.state.errorMessage.set(e.message || '오류가 발생했습니다.');
+      }
+    } finally {
+      this.state.generating.set(false);
+    }
   }
 
   async submitIssueModal() {
@@ -1040,6 +1141,10 @@ export class ReportPage {
     this.state.addIssueDraft(projectName);
   }
 
+  setReportType(type: ReportType) {
+    this.state.reportType = type;
+  }
+
   removeIssueDraft(projectName: string, id: string) {
     this.state.removeIssueDraft(projectName, id);
   }
@@ -1066,8 +1171,12 @@ export class ReportPage {
     this.state.fetchedSchedules.set(updated);
   }
 
-  onMarkdownChange(value: string) {
+  onProjectMarkdownChange(value: string) {
     this.state.updateActiveReport(value, this.markdownToHtml(value));
+  }
+
+  onWorkMarkdownChange(value: string) {
+    this.state.updateWorkReport(value, this.markdownToHtml(value));
   }
 
   onCheckChange(id: string, event: Event) {
@@ -1088,7 +1197,10 @@ export class ReportPage {
   }
 
   async copyToClipboard() {
-    const markdown = this.state.activeReport()?.markdown || '';
+    const markdown =
+      this.state.workReport()?.markdown ||
+      this.state.activeReport()?.markdown ||
+      '';
     if (!markdown) return;
 
     try {

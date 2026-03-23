@@ -74,7 +74,7 @@ export class NotionService {
   async fetchSchedules(
     startDate: string,
     endDate: string,
-    type: 'MONDAY' | 'FRIDAY',
+    type: 'WORK' | 'PROJECT',
   ): Promise<NotionSchedule[]> {
     const config = loadConfig();
     const client = this.getClient();
