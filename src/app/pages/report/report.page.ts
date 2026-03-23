@@ -87,10 +87,10 @@ import {
           <div class="schedule-list-header">
             <div class="schedule-list-info">
               <span class="schedule-count">
-                <strong>{{ state.selectedCount() }}</strong
-                >개 선택됨
+                총 <strong>{{ state.fetchedSchedules().length }}</strong
+                >건 조회
                 <span class="schedule-total"
-                  >(총 {{ state.fetchedSchedules().length }}건)</span
+                  >(선택 {{ state.selectedCount() }}건)</span
                 >
               </span>
             </div>

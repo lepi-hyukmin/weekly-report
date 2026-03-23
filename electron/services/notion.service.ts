@@ -27,6 +27,10 @@ function unwrap(entry: any): any {
   return entry;
 }
 
+function normalizeUuid(value: string): string {
+  return (value || '').toLowerCase().replace(/-/g, '');
+}
+
 export class NotionService {
   private client: NotionAPI | null = null;
 
@@ -108,6 +112,9 @@ export class NotionService {
       return [];
     }
     console.log(`[Notion] 컬렉션: ${collectionId}, 뷰: ${viewId}`);
+    console.log(
+      '[Notion] 참고: 조회는 선택된 뷰를 통해 시작되며, 이후 앱에서 날짜/참여자 필터를 적용합니다.',
+    );
 
     // 스키마 추출
     const collections = pageMap.collection || {};
@@ -188,17 +195,15 @@ export class NotionService {
       `[Notion] 블록 ID: ${blockIds.length}건, 로드된 블록: ${loadedBlockCount}건`,
     );
 
-    // Step 3: 로드되지 않은 블록 배치 로드 (최대 1000건)
+    // Step 3: 로드되지 않은 블록 배치 로드
     const blocks: Record<string, any> = { ...(recordMap.block || {}) };
     const missingIds = blockIds.filter((id) => !blocks[id]);
-    const maxLoad = Math.min(missingIds.length, 1000);
-
-    if (maxLoad > 0) {
+    if (missingIds.length > 0) {
       console.log(
-        `[Notion] 누락 블록 ${missingIds.length}건 중 ${maxLoad}건 배치 로드...`,
+        `[Notion] 누락 블록 ${missingIds.length}건 배치 로드 시작...`,
       );
       const BATCH_SIZE = 100;
-      for (let i = 0; i < maxLoad; i += BATCH_SIZE) {
+      for (let i = 0; i < missingIds.length; i += BATCH_SIZE) {
         const batch = missingIds.slice(i, i + BATCH_SIZE);
         try {
           const result = await client.getBlocks(batch);
@@ -213,6 +218,13 @@ export class NotionService {
       console.log(
         `[Notion] 배치 로드 완료, 총 블록: ${Object.keys(blocks).length}건`,
       );
+
+      const stillMissingCount = blockIds.filter((id) => !blocks[id]).length;
+      if (stillMissingCount > 0) {
+        console.log(
+          `[Notion] 경고: 배치 로드 후에도 블록 ${stillMissingCount}건이 비어 있습니다.`,
+        );
+      }
     }
 
     // Step 3.5: relation 페이지 (프로젝트 등) 배치 로드
@@ -260,21 +272,50 @@ export class NotionService {
     const schedules: NotionSchedule[] = [];
     const userMap: Record<string, string> = {};
     let debugCount = 0;
+    const normalizedCurrentUserId = normalizeUuid(currentUserId);
+    const filterStats = {
+      missingBlock: 0,
+      emptyProperties: 0,
+      missingPersonProperty: 0,
+      assigneeMismatch: 0,
+      missingDate: 0,
+      outOfRange: 0,
+      included: 0,
+    };
+
+    if (currentUserId && !personSchemaKey) {
+      console.log(
+        '[Notion] 경고: notionUserId는 설정되어 있지만 참여자 필드를 찾지 못해 참여자 필터를 적용할 수 없습니다.',
+      );
+    }
 
     for (const blockId of blockIds) {
       const value = unwrap(blocks[blockId]);
-      if (!value) continue;
+      if (!value) {
+        filterStats.missingBlock++;
+        continue;
+      }
 
       const properties = value.properties || {};
-      if (Object.keys(properties).length <= 1) continue;
+      if (Object.keys(properties).length === 0) {
+        filterStats.emptyProperties++;
+        continue;
+      }
 
       // UUID 기반 참여자 필터
       if (currentUserId && personSchemaKey) {
         const personProp = properties[personSchemaKey];
         if (personProp) {
-          const personJson = JSON.stringify(personProp);
-          if (!personJson.includes(currentUserId)) continue;
+          const personIds = this.extractPersonIds(personProp);
+          const hasCurrentUser = personIds.some(
+            (personId) => normalizeUuid(personId) === normalizedCurrentUserId,
+          );
+          if (!hasCurrentUser) {
+            filterStats.assigneeMismatch++;
+            continue;
+          }
         } else {
+          filterStats.missingPersonProperty++;
           continue;
         }
       }
@@ -287,12 +328,18 @@ export class NotionService {
       );
 
       // 날짜 필터
-      if (!parsed.date) continue;
+      if (!parsed.date) {
+        filterStats.missingDate++;
+        continue;
+      }
       const scheduleDate = new Date(parsed.date);
       const start = new Date(startDate);
       const end = new Date(endDate);
       end.setHours(23, 59, 59);
-      if (scheduleDate < start || scheduleDate > end) continue;
+      if (scheduleDate < start || scheduleDate > end) {
+        filterStats.outOfRange++;
+        continue;
+      }
 
       if (debugCount < 10) {
         console.log(
@@ -320,12 +367,16 @@ export class NotionService {
         assignees: parsed.assignees,
         childContent,
       });
+      filterStats.included++;
     }
 
     schedules.sort(
       (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime(),
     );
 
+    console.log(
+      `[Notion] 필터 통계 — 누락블록:${filterStats.missingBlock}, 빈속성:${filterStats.emptyProperties}, 참여자필드없음:${filterStats.missingPersonProperty}, 참여자불일치:${filterStats.assigneeMismatch}, 날짜없음:${filterStats.missingDate}, 기간외:${filterStats.outOfRange}, 포함:${filterStats.included}`,
+    );
     console.log(`[Notion] ✅ 최종 결과: ${schedules.length}건`);
     return schedules;
   }
@@ -591,11 +642,8 @@ export class NotionService {
   ): string[] {
     const persons: string[] = [];
     try {
-      const flat = JSON.stringify(propValue);
-      const uuidPattern =
-        /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/g;
-      const matches = flat.match(uuidPattern);
-      if (matches) {
+      const matches = this.extractPersonIds(propValue);
+      if (matches.length > 0) {
         for (const userId of matches) {
           const name = userMap[userId];
           if (name && !persons.includes(name)) {
@@ -605,6 +653,18 @@ export class NotionService {
       }
     } catch {}
     return persons;
+  }
+
+  private extractPersonIds(propValue: any): string[] {
+    try {
+      const flat = JSON.stringify(propValue);
+      const uuidPattern =
+        /[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}/gi;
+      const matches = flat.match(uuidPattern) || [];
+      return Array.from(new Set(matches.map((id) => id.toLowerCase())));
+    } catch {
+      return [];
+    }
   }
 
   private async fetchPageBlocks(pageId: string): Promise<string[]> {
