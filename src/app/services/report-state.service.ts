@@ -25,6 +25,12 @@ export interface GeneratedProjectReport {
   pendingCount: number;
 }
 
+export interface IssueDraft {
+  id: string;
+  projectName: string;
+  content: string;
+}
+
 /**
  * 보고서 페이지 상태를 유지하는 싱글턴 서비스
  * 페이지 이동 후 돌아와도 상태가 유지됨
@@ -46,6 +52,9 @@ export class ReportStateService {
   readonly activeProjectName = signal('');
   readonly activeTab = signal<'edit' | 'preview'>('preview');
   readonly copied = signal(false);
+  readonly showIssueModal = signal(false);
+  readonly issueDrafts = signal<IssueDraft[]>([]);
+  readonly pendingSelectedSchedules = signal<SelectableSchedule[]>([]);
 
   // 취소용 플래그
   private fetchAborted = false;
@@ -83,6 +92,16 @@ export class ReportStateService {
       0,
     ),
   );
+
+  readonly issueProjectOptions = computed(() => {
+    const names = new Set<string>();
+    for (const schedule of this.pendingSelectedSchedules()) {
+      const projectName = (schedule.project || '').trim();
+      if (!projectName || projectName === '기타') continue;
+      names.add(projectName);
+    }
+    return Array.from(names).sort((a, b) => a.localeCompare(b, 'ko'));
+  });
 
   // 초기화 여부
   private initialized = false;
@@ -158,6 +177,63 @@ export class ReportStateService {
           : report,
       ),
     );
+  }
+
+  openIssueModal(selectedSchedules: SelectableSchedule[]): void {
+    this.pendingSelectedSchedules.set(selectedSchedules);
+
+    if (this.issueDrafts().length === 0) {
+      const defaultProjectName =
+        selectedSchedules
+          .map((schedule) => (schedule.project || '').trim())
+          .find((projectName) => projectName && projectName !== '기타') || '';
+      this.issueDrafts.set([this.createIssueDraft(defaultProjectName)]);
+    }
+
+    this.showIssueModal.set(true);
+  }
+
+  closeIssueModal(): void {
+    this.showIssueModal.set(false);
+  }
+
+  addIssueDraft(defaultProjectName = ''): void {
+    this.issueDrafts.update((drafts) => [
+      ...drafts,
+      this.createIssueDraft(defaultProjectName),
+    ]);
+  }
+
+  removeIssueDraft(id: string): void {
+    this.issueDrafts.update((drafts) =>
+      drafts.filter((draft) => draft.id !== id),
+    );
+  }
+
+  updateIssueDraft(
+    id: string,
+    field: 'projectName' | 'content',
+    value: string,
+  ): void {
+    this.issueDrafts.update((drafts) =>
+      drafts.map((draft) =>
+        draft.id === id ? { ...draft, [field]: value } : draft,
+      ),
+    );
+  }
+
+  resetIssueModalState(): void {
+    this.showIssueModal.set(false);
+    this.issueDrafts.set([]);
+    this.pendingSelectedSchedules.set([]);
+  }
+
+  private createIssueDraft(defaultProjectName: string): IssueDraft {
+    return {
+      id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      projectName: defaultProjectName,
+      content: '',
+    };
   }
 
   private formatDate(date: Date): string {

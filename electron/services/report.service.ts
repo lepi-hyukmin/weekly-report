@@ -15,6 +15,12 @@ export interface ProjectReport {
   pendingCount: number;
 }
 
+export interface ReportIssueInput {
+  id: string;
+  projectName: string;
+  content: string;
+}
+
 /**
  * 보고서 생성 엔진
  */
@@ -57,6 +63,7 @@ export class ReportService {
     endDate: string,
     authorName: string,
     completedSummaryMap: Map<string, string[]>,
+    issueMap: Map<string, ReportIssueInput[]>,
   ): ProjectReport[] {
     const projectGroups = this.buildProjectGroups(schedules);
 
@@ -73,6 +80,7 @@ export class ReportService {
         endDate,
         authorName,
         completedSummaryMap.get(projectGroup.projectName) || [],
+        issueMap.get(projectGroup.projectName) || [],
       );
 
       return {
@@ -92,6 +100,7 @@ export class ReportService {
     endDate: string,
     authorName: string,
     completedSummaryLines: string[],
+    issues: ReportIssueInput[],
   ): string {
     const completedSchedules = projectGroup.schedules.filter((schedule) =>
       this.isCompleted(schedule.status),
@@ -140,13 +149,7 @@ export class ReportService {
     lines.push('');
     lines.push('---');
     lines.push('');
-    lines.push('- 이슈 1');
-    lines.push('    - **내용**');
-    lines.push('    - **원인**');
-    lines.push('    - **대응 방안**');
-    lines.push('        - **방안**');
-    lines.push('        - **담당자**');
-    lines.push('        - **기한**');
+    lines.push(...this.renderIssueLines(issues, authorName, endDate));
     lines.push('');
 
     return lines.join('\n');
@@ -203,6 +206,61 @@ export class ReportService {
     const month = value.getMonth() + 1;
     const day = String(value.getDate()).padStart(2, '0');
     return `~${month}/${day} (${days[value.getDay()]})`;
+  }
+
+  private renderIssueLines(
+    issues: ReportIssueInput[],
+    authorName: string,
+    endDate: string,
+  ): string[] {
+    if (issues.length === 0) {
+      return ['- 이슈 없음'];
+    }
+
+    const deadline = this.formatIssueDeadline(endDate);
+    const lines: string[] = [];
+
+    issues.forEach((issue, index) => {
+      const content = issue.content.trim();
+      lines.push(`- 이슈 ${index + 1}`);
+      lines.push('    - 내용');
+      lines.push(`        - ${content}`);
+      lines.push('    - 원인');
+      lines.push(`        - ${this.buildIssueCause(content)}`);
+      lines.push('    - 대응 방안');
+      lines.push('        - 방안');
+      lines.push(`            - ${this.buildIssueAction(content)}`);
+      lines.push('        - 담당자');
+      lines.push(`            - ${authorName || '-'}`);
+      lines.push('        - 기한');
+      lines.push(`            - ${deadline}`);
+    });
+
+    return lines;
+  }
+
+  private buildIssueCause(content: string): string {
+    const normalized = content.replace(/\s*상태$/, '').trim();
+    if (!normalized) {
+      return '관련 선행 자료 확인 및 요청 절차가 아직 진행되지 않음';
+    }
+    return `${normalized}와 관련된 선행 자료 확인 및 요청 절차가 아직 완료되지 않음`;
+  }
+
+  private buildIssueAction(content: string): string {
+    const normalized = content.replace(/\s*상태$/, '').trim();
+    if (!normalized) {
+      return '필요 자료를 확인하고 요청을 진행해 선행 조건을 확보할 예정';
+    }
+    return `${normalized} 문제를 해소하기 위해 필요한 자료 확인 및 요청을 우선 진행할 예정`;
+  }
+
+  private formatIssueDeadline(date: string): string {
+    if (!date) return '~-';
+
+    const value = new Date(date);
+    const days = ['일', '월', '화', '수', '목', '금', '토'];
+    return `~${value.getMonth() + 1}/${String(value.getDate()).padStart(2, '0')}(${days[value.getDay()]})`;
   }
 
   private isCompleted(status: string): boolean {

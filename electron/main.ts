@@ -8,7 +8,7 @@ import {
 } from './services/auth.service';
 import { NotionService } from './services/notion.service';
 import { GeminiService } from './services/gemini.service';
-import { ReportService } from './services/report.service';
+import { ReportIssueInput, ReportService } from './services/report.service';
 
 let mainWindow: BrowserWindow | null = null;
 const notionService = new NotionService();
@@ -128,7 +128,7 @@ function registerIpcHandlers(): void {
   // === 보고서 ===
   ipcMain.handle(
     'report:generate',
-    async (_event, { schedules, type, startDate, endDate }) => {
+    async (_event, { schedules, type, startDate, endDate, issues }) => {
       try {
         if (!schedules || schedules.length === 0) {
           return {
@@ -159,6 +159,23 @@ function registerIpcHandlers(): void {
         const authorName = loadConfig().notionUserName || '-';
         const projectGroups = reportService.buildProjectGroups(schedules);
         const completedSummaryMap = new Map<string, string[]>();
+        const issueMap = new Map<string, ReportIssueInput[]>();
+
+        for (const issue of (issues || []) as ReportIssueInput[]) {
+          const projectName = (issue.projectName || '').trim();
+          const content = (issue.content || '').trim();
+          if (!projectName || !content) continue;
+
+          if (!issueMap.has(projectName)) {
+            issueMap.set(projectName, []);
+          }
+
+          issueMap.get(projectName)!.push({
+            id: issue.id,
+            projectName,
+            content,
+          });
+        }
 
         for (const projectGroup of projectGroups) {
           const completedSchedules = projectGroup.schedules.filter(
@@ -194,6 +211,7 @@ function registerIpcHandlers(): void {
           endDate,
           authorName,
           completedSummaryMap,
+          issueMap,
         );
 
         const includedScheduleCount = projectReports.reduce(

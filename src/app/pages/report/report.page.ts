@@ -254,6 +254,94 @@ import {
           </section>
         }
       }
+
+      @if (state.showIssueModal()) {
+        <div class="modal-backdrop">
+          <section class="issue-modal">
+            <div class="issue-modal-header">
+              <div>
+                <h2 class="issue-modal-title">이슈 입력</h2>
+                <p class="issue-modal-subtitle">
+                  해당 내용으로 보고서를 작성하시겠습니까?
+                </p>
+              </div>
+              <button class="btn btn-text" (click)="closeIssueModal()">
+                닫기
+              </button>
+            </div>
+
+            <div class="issue-modal-body">
+              <div class="issue-section-title">이슈 목록</div>
+
+              @if (state.issueDrafts().length === 0) {
+                <p class="issue-empty">등록된 이슈가 없습니다.</p>
+              }
+
+              @for (
+                issue of state.issueDrafts();
+                track issue.id;
+                let i = $index
+              ) {
+                <div class="issue-row">
+                  <div class="issue-row-top">
+                    <span class="issue-row-label">이슈{{ i + 1 }}</span>
+                    <button
+                      class="btn btn-text issue-delete-btn"
+                      (click)="removeIssueDraft(issue.id)"
+                    >
+                      삭제
+                    </button>
+                  </div>
+
+                  <div class="issue-row-fields">
+                    <select
+                      class="input issue-project-select"
+                      [ngModel]="issue.projectName"
+                      (ngModelChange)="updateIssueProject(issue.id, $event)"
+                    >
+                      <option value="">프로젝트 선택</option>
+                      @for (
+                        projectName of state.issueProjectOptions();
+                        track projectName
+                      ) {
+                        <option [value]="projectName">{{ projectName }}</option>
+                      }
+                    </select>
+
+                    <input
+                      type="text"
+                      class="input issue-content-input"
+                      [ngModel]="issue.content"
+                      (ngModelChange)="updateIssueContent(issue.id, $event)"
+                      placeholder="이슈 내용을 입력하세요"
+                    />
+                  </div>
+                </div>
+              }
+
+              <button
+                class="btn btn-secondary issue-add-btn"
+                (click)="addIssueDraft()"
+              >
+                + 추가
+              </button>
+
+              <p class="issue-help-text">
+                원인, 대응 방안, 담당자, 기한은 기본 규칙으로 자동 채워집니다.
+              </p>
+            </div>
+
+            <div class="issue-modal-footer">
+              <button class="btn btn-secondary" (click)="closeIssueModal()">
+                취소
+              </button>
+              <button class="btn btn-primary" (click)="submitIssueModal()">
+                보고서 생성
+              </button>
+            </div>
+          </section>
+        </div>
+      }
     </div>
   `,
   styles: [
@@ -778,6 +866,7 @@ export class ReportPage {
     this.state.errorMessage.set('');
     this.state.showScheduleList.set(false);
     this.state.clearGeneratedReports();
+    this.state.resetIssueModalState();
 
     try {
       const result = await this.electron.fetchSchedules({
@@ -851,12 +940,30 @@ export class ReportPage {
   /**
    * Step 2: 선택된 일정으로 보고서 생성
    */
-  async confirmGenerate() {
+  confirmGenerate() {
     const selected = this.state.fetchedSchedules().filter((s) => s.checked);
+    if (selected.length === 0) return;
+
+    this.state.errorMessage.set('');
+    this.state.openIssueModal(selected);
+  }
+
+  async submitIssueModal() {
+    const selected = this.state.pendingSelectedSchedules();
     if (selected.length === 0) return;
 
     this.state.generating.set(true);
     this.state.errorMessage.set('');
+    this.state.closeIssueModal();
+
+    const issues = this.state
+      .issueDrafts()
+      .map((issue) => ({
+        ...issue,
+        projectName: issue.projectName.trim(),
+        content: issue.content.trim(),
+      }))
+      .filter((issue) => issue.projectName && issue.content);
 
     try {
       const result = await this.electron.generateReport({
@@ -864,6 +971,7 @@ export class ReportPage {
         type: this.state.reportType,
         startDate: this.state.startDate,
         endDate: this.state.endDate,
+        issues,
       });
 
       // 취소됐으면 결과 무시
@@ -911,6 +1019,27 @@ export class ReportPage {
   cancelSelection() {
     this.state.showScheduleList.set(false);
     this.state.fetchedSchedules.set([]);
+    this.state.resetIssueModalState();
+  }
+
+  closeIssueModal() {
+    this.state.closeIssueModal();
+  }
+
+  addIssueDraft() {
+    this.state.addIssueDraft(this.state.issueProjectOptions()[0] || '');
+  }
+
+  removeIssueDraft(id: string) {
+    this.state.removeIssueDraft(id);
+  }
+
+  updateIssueProject(id: string, projectName: string) {
+    this.state.updateIssueDraft(id, 'projectName', projectName);
+  }
+
+  updateIssueContent(id: string, content: string) {
+    this.state.updateIssueDraft(id, 'content', content);
   }
 
   selectProjectReport(projectName: string) {

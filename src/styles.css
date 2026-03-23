@@ -40,3 +40,118 @@ body {
 ::selection {
   background: rgba(102, 126, 234, 0.3);
 }
+
+app-report .modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(6, 8, 20, 0.72);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 1000;
+  backdrop-filter: blur(4px);
+}
+
+app-report .issue-modal {
+  width: min(760px, 100%);
+  max-height: 85vh;
+  overflow-y: auto;
+  background: #141629;
+  border: 1px solid #2f3358;
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+}
+
+app-report .issue-modal-header,
+app-report .issue-modal-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 20px 22px;
+}
+
+app-report .issue-modal-header {
+  border-bottom: 1px solid #2a2a4a;
+}
+
+app-report .issue-modal-footer {
+  border-top: 1px solid #2a2a4a;
+}
+
+app-report .issue-modal-title {
+  margin: 0 0 6px;
+  font-size: 20px;
+  color: #fff;
+}
+
+app-report .issue-modal-subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: #9c9cc4;
+}
+
+app-report .issue-modal-body {
+  padding: 20px 22px;
+}
+
+app-report .issue-section-title {
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 12px;
+}
+
+app-report .issue-empty {
+  margin: 0 0 14px;
+  font-size: 13px;
+  color: #8c8cb4;
+}
+
+app-report .issue-row {
+  padding: 14px;
+  border: 1px solid #2a2a4a;
+  border-radius: 10px;
+  background: #0f0f1a;
+  margin-bottom: 10px;
+}
+
+app-report .issue-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+
+app-report .issue-row-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #d8d8f0;
+}
+
+app-report .issue-row-fields {
+  display: grid;
+  grid-template-columns: 180px 1fr;
+  gap: 10px;
+}
+
+app-report .issue-project-select,
+app-report .issue-content-input {
+  min-width: 0;
+}
+
+app-report .issue-delete-btn {
+  color: #ff8f8f;
+}
+
+app-report .issue-add-btn {
+  margin-top: 6px;
+}
+
+app-report .issue-help-text {
+  margin: 14px 0 0;
+  font-size: 12px;
+  color: #8c8cb4;
+}
