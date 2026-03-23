@@ -166,50 +166,89 @@ import {
       }
 
       <!-- 결과 (에디터 + 미리보기) -->
-      @if (state.reportMarkdown()) {
+      @if (state.hasGeneratedReports()) {
         <section class="card result-card">
-          <div class="result-header">
-            <div class="tab-buttons">
+          <div class="project-report-tabs">
+            @for (
+              report of state.generatedReports();
+              track report.projectName
+            ) {
               <button
-                class="tab-btn"
-                [class.active]="state.activeTab() === 'preview'"
-                (click)="state.activeTab.set('preview')"
+                class="project-report-tab"
+                [class.active]="
+                  state.activeProjectName() === report.projectName
+                "
+                (click)="selectProjectReport(report.projectName)"
               >
-                👁️ 미리보기
+                <span>{{ report.projectName }}</span>
+                <span class="project-report-badge">{{
+                  report.scheduleCount
+                }}</span>
               </button>
-              <button
-                class="tab-btn"
-                [class.active]="state.activeTab() === 'edit'"
-                (click)="state.activeTab.set('edit')"
-              >
-                ✏️ 편집
-              </button>
-            </div>
-            <div class="action-buttons">
-              <button class="btn btn-secondary" (click)="copyToClipboard()">
-                {{ state.copied() ? '✅ 복사됨!' : '📋 마크다운 복사' }}
-              </button>
-            </div>
-          </div>
-
-          <div class="result-body">
-            @if (state.activeTab() === 'edit') {
-              <textarea
-                class="editor"
-                [(ngModel)]="state.reportMarkdown"
-                (ngModelChange)="onMarkdownChange($event)"
-              ></textarea>
-            } @else {
-              <div class="preview" [innerHTML]="state.previewHtml()"></div>
             }
           </div>
+
+          @if (state.activeReport(); as activeReport) {
+            <div class="result-header">
+              <div class="project-report-summary">
+                <div class="project-report-title">
+                  {{ activeReport.projectName }}
+                </div>
+                <div class="project-report-meta">
+                  총 {{ activeReport.scheduleCount }}건 · 완료
+                  {{ activeReport.completedCount }}건 · 남은 업무
+                  {{ activeReport.pendingCount }}건
+                </div>
+              </div>
+              <div class="result-header-right">
+                <div class="tab-buttons">
+                  <button
+                    class="tab-btn"
+                    [class.active]="state.activeTab() === 'preview'"
+                    (click)="state.activeTab.set('preview')"
+                  >
+                    👁️ 미리보기
+                  </button>
+                  <button
+                    class="tab-btn"
+                    [class.active]="state.activeTab() === 'edit'"
+                    (click)="state.activeTab.set('edit')"
+                  >
+                    ✏️ 편집
+                  </button>
+                </div>
+                <div class="action-buttons">
+                  <button class="btn btn-secondary" (click)="copyToClipboard()">
+                    {{ state.copied() ? '✅ 복사됨!' : '📋 마크다운 복사' }}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="result-body">
+              @if (state.activeTab() === 'edit') {
+                <textarea
+                  class="editor"
+                  [ngModel]="activeReport.markdown"
+                  (ngModelChange)="onMarkdownChange($event)"
+                ></textarea>
+              } @else {
+                <div
+                  class="preview"
+                  [innerHTML]="activeReport.previewHtml"
+                ></div>
+              }
+            </div>
+          }
         </section>
 
         <!-- 일정 요약 -->
-        @if (state.scheduleCount() > 0) {
+        @if (state.totalGeneratedScheduleCount() > 0) {
           <section class="card info-card">
             <p class="info-text">
-              📊 총 <strong>{{ state.scheduleCount() }}</strong
+              📊 총 <strong>{{ state.generatedReports().length }}</strong
+              >개 프로젝트,
+              <strong>{{ state.totalGeneratedScheduleCount() }}</strong
               >개 일정이 반영되었습니다.
             </p>
           </section>
@@ -526,6 +565,63 @@ import {
         margin-bottom: 12px;
         padding-bottom: 12px;
         border-bottom: 1px solid #2a2a4a;
+        gap: 16px;
+      }
+      .project-report-tabs {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+        margin-bottom: 14px;
+      }
+      .project-report-tab {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 12px;
+        background: #0f0f1a;
+        border: 1px solid #2a2a4a;
+        border-radius: 999px;
+        color: #a7a7c8;
+        font-size: 12px;
+        cursor: pointer;
+        transition: all 0.2s;
+      }
+      .project-report-tab:hover {
+        border-color: #667eea;
+        color: #d8d8f0;
+      }
+      .project-report-tab.active {
+        background: rgba(102, 126, 234, 0.15);
+        border-color: #667eea;
+        color: #fff;
+      }
+      .project-report-badge {
+        min-width: 20px;
+        padding: 2px 6px;
+        background: rgba(255, 255, 255, 0.08);
+        border-radius: 999px;
+        font-size: 11px;
+        text-align: center;
+      }
+      .project-report-summary {
+        min-width: 0;
+      }
+      .project-report-title {
+        font-size: 16px;
+        font-weight: 700;
+        color: #fff;
+        margin-bottom: 4px;
+      }
+      .project-report-meta {
+        font-size: 12px;
+        color: #9a9ac2;
+      }
+      .result-header-right {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        flex-wrap: wrap;
+        justify-content: flex-end;
       }
       .tab-buttons {
         display: flex;
@@ -681,7 +777,7 @@ export class ReportPage {
     this.state.loading.set(true);
     this.state.errorMessage.set('');
     this.state.showScheduleList.set(false);
-    this.state.reportMarkdown.set('');
+    this.state.clearGeneratedReports();
 
     try {
       const result = await this.electron.fetchSchedules({
@@ -735,9 +831,9 @@ export class ReportPage {
       if (!this.state.isFetchAborted()) {
         this.state.errorMessage.set(e.message || '오류가 발생했습니다.');
       }
+    } finally {
+      this.state.loading.set(false);
     }
-
-    this.state.loading.set(false);
   }
 
   /**
@@ -774,9 +870,23 @@ export class ReportPage {
       if (this.state.isGenerateAborted()) return;
 
       if (result?.success) {
-        this.state.reportMarkdown.set(result.data.markdown);
-        this.state.scheduleCount.set(result.data.schedules?.length || 0);
-        this.state.previewHtml.set(this.markdownToHtml(result.data.markdown));
+        const projectReports = (result.data?.projectReports || []).map(
+          (report: any) => ({
+            ...report,
+            previewHtml: this.markdownToHtml(report.markdown),
+          }),
+        );
+
+        if (projectReports.length === 0) {
+          this.state.errorMessage.set(
+            result.data?.excludedScheduleCount > 0
+              ? '프로젝트가 지정된 일정만 보고서를 생성할 수 있습니다.'
+              : '생성 가능한 프로젝트 보고서가 없습니다.',
+          );
+          return;
+        }
+
+        this.state.setGeneratedReports(projectReports);
         this.state.showScheduleList.set(false);
       } else {
         this.state.errorMessage.set(result?.error || '보고서 생성 실패');
@@ -785,9 +895,9 @@ export class ReportPage {
       if (!this.state.isGenerateAborted()) {
         this.state.errorMessage.set(e.message || '오류가 발생했습니다.');
       }
+    } finally {
+      this.state.generating.set(false);
     }
-
-    this.state.generating.set(false);
   }
 
   cancelFetch() {
@@ -801,6 +911,10 @@ export class ReportPage {
   cancelSelection() {
     this.state.showScheduleList.set(false);
     this.state.fetchedSchedules.set([]);
+  }
+
+  selectProjectReport(projectName: string) {
+    this.state.setActiveProject(projectName);
   }
 
   onGroupToggle(project: string) {
@@ -818,7 +932,7 @@ export class ReportPage {
   }
 
   onMarkdownChange(value: string) {
-    this.state.previewHtml.set(this.markdownToHtml(value));
+    this.state.updateActiveReport(value, this.markdownToHtml(value));
   }
 
   onCheckChange(id: string, event: Event) {
@@ -839,7 +953,7 @@ export class ReportPage {
   }
 
   async copyToClipboard() {
-    const markdown = this.state.reportMarkdown();
+    const markdown = this.state.activeReport()?.markdown || '';
     if (!markdown) return;
 
     try {

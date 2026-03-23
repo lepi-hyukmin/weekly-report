@@ -15,6 +15,16 @@ export interface SelectableSchedule {
   checked: boolean;
 }
 
+export interface GeneratedProjectReport {
+  projectName: string;
+  projectUrl: string;
+  markdown: string;
+  previewHtml: string;
+  scheduleCount: number;
+  completedCount: number;
+  pendingCount: number;
+}
+
 /**
  * 보고서 페이지 상태를 유지하는 싱글턴 서비스
  * 페이지 이동 후 돌아와도 상태가 유지됨
@@ -32,9 +42,8 @@ export class ReportStateService {
   readonly errorMessage = signal('');
   readonly showScheduleList = signal(false);
   readonly fetchedSchedules = signal<SelectableSchedule[]>([]);
-  readonly reportMarkdown = signal('');
-  readonly previewHtml = signal('');
-  readonly scheduleCount = signal(0);
+  readonly generatedReports = signal<GeneratedProjectReport[]>([]);
+  readonly activeProjectName = signal('');
   readonly activeTab = signal<'edit' | 'preview'>('preview');
   readonly copied = signal(false);
 
@@ -51,6 +60,28 @@ export class ReportStateService {
     () =>
       this.fetchedSchedules().length > 0 &&
       this.fetchedSchedules().every((s) => s.checked),
+  );
+
+  readonly hasGeneratedReports = computed(
+    () => this.generatedReports().length > 0,
+  );
+
+  readonly activeReport = computed<GeneratedProjectReport | null>(() => {
+    const reports = this.generatedReports();
+    if (reports.length === 0) return null;
+
+    return (
+      reports.find(
+        (report) => report.projectName === this.activeProjectName(),
+      ) || reports[0]
+    );
+  });
+
+  readonly totalGeneratedScheduleCount = computed(() =>
+    this.generatedReports().reduce(
+      (sum, report) => sum + report.scheduleCount,
+      0,
+    ),
   );
 
   // 초기화 여부
@@ -95,6 +126,38 @@ export class ReportStateService {
     const v = this.generateAborted;
     this.generateAborted = false;
     return v;
+  }
+
+  setGeneratedReports(reports: GeneratedProjectReport[]): void {
+    this.generatedReports.set(reports);
+    this.activeProjectName.set(reports[0]?.projectName || '');
+    this.activeTab.set('preview');
+    this.copied.set(false);
+  }
+
+  clearGeneratedReports(): void {
+    this.generatedReports.set([]);
+    this.activeProjectName.set('');
+    this.activeTab.set('preview');
+    this.copied.set(false);
+  }
+
+  setActiveProject(projectName: string): void {
+    this.activeProjectName.set(projectName);
+    this.copied.set(false);
+  }
+
+  updateActiveReport(markdown: string, previewHtml: string): void {
+    const activeProjectName = this.activeProjectName();
+    if (!activeProjectName) return;
+
+    this.generatedReports.update((reports) =>
+      reports.map((report) =>
+        report.projectName === activeProjectName
+          ? { ...report, markdown, previewHtml }
+          : report,
+      ),
+    );
   }
 
   private formatDate(date: Date): string {

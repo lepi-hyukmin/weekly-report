@@ -3,167 +3,209 @@ import { NotionSchedule } from './notion.service';
 export interface ProjectGroup {
   projectName: string;
   projectUrl: string;
-  categories: CategoryGroup[];
+  schedules: NotionSchedule[];
 }
 
-export interface CategoryGroup {
-  categoryName: string;
-  schedules: NotionSchedule[];
+export interface ProjectReport {
+  projectName: string;
+  projectUrl: string;
+  markdown: string;
+  scheduleCount: number;
+  completedCount: number;
+  pendingCount: number;
 }
 
 /**
  * 보고서 생성 엔진
  */
 export class ReportService {
-  /**
-   * 보고서 마크다운 생성
-   */
-  generateReport(
-    schedules: NotionSchedule[],
-    type: 'MONDAY' | 'FRIDAY',
-    startDate: string,
-    endDate: string,
-    summary: string,
-    planDraft: string,
-  ): string {
-    const projectGroups = this.groupByProject(schedules);
-    const detailSection = this.renderDetailSection(
-      projectGroups,
-      startDate,
-      endDate,
-    );
-
-    const typeLabel = type === 'MONDAY' ? '월요일' : '금요일';
-    const reportLines: string[] = [];
-
-    // 1. 3줄 요약
-    reportLines.push('## 1. 3줄 요약');
-    reportLines.push('');
-    reportLines.push(summary.trim());
-    reportLines.push('');
-
-    // 2. 상세 보고
-    reportLines.push('## 2. 상세 보고');
-    reportLines.push('');
-    reportLines.push(`- **발생 시각/기간: ${startDate} ~ ${endDate}**`);
-    reportLines.push('');
-    reportLines.push('- **상세 내용:**');
-    reportLines.push('');
-    reportLines.push(detailSection);
-    reportLines.push('');
-
-    // 3. 의사결정 요청 및 향후 계획
-    reportLines.push('## 3. 의사결정 요청 및 향후 계획');
-    reportLines.push('');
-    reportLines.push(planDraft.trim());
-    reportLines.push('');
-
-    // 4. 첨부 자료
-    reportLines.push('## 4. 첨부 자료');
-    reportLines.push('');
-    reportLines.push('- ');
-    reportLines.push('');
-
-    return reportLines.join('\n');
-  }
-
-  /**
-   * 프로젝트별 그룹핑
-   */
-  private groupByProject(schedules: NotionSchedule[]): ProjectGroup[] {
+  buildProjectGroups(schedules: NotionSchedule[]): ProjectGroup[] {
     const projectMap = new Map<string, ProjectGroup>();
 
     for (const schedule of schedules) {
-      const projectName = schedule.project || '기타';
-      const projectUrl = schedule.projectUrl || '';
+      const projectName = (schedule.project || '').trim();
+      if (!projectName || projectName === '기타') continue;
 
       if (!projectMap.has(projectName)) {
         projectMap.set(projectName, {
           projectName,
-          projectUrl,
-          categories: [],
+          projectUrl: schedule.projectUrl || '',
+          schedules: [],
         });
       }
 
-      const group = projectMap.get(projectName)!;
-      const categoryName = schedule.category || '';
-
-      let categoryGroup = group.categories.find(
-        (c) => c.categoryName === categoryName,
-      );
-      if (!categoryGroup) {
-        categoryGroup = { categoryName, schedules: [] };
-        group.categories.push(categoryGroup);
-      }
-
-      categoryGroup.schedules.push(schedule);
+      projectMap.get(projectName)!.schedules.push(schedule);
     }
 
-    return Array.from(projectMap.values());
+    return Array.from(projectMap.values())
+      .map((group) => ({
+        ...group,
+        schedules: [...group.schedules].sort((a, b) =>
+          a.date.localeCompare(b.date),
+        ),
+      }))
+      .sort((a, b) => {
+        const countDiff = b.schedules.length - a.schedules.length;
+        if (countDiff !== 0) return countDiff;
+        return a.projectName.localeCompare(b.projectName, 'ko');
+      });
   }
 
-  /**
-   * 상세 보고 섹션 렌더링
-   */
-  private renderDetailSection(
-    projectGroups: ProjectGroup[],
-    _startDate: string,
-    _endDate: string,
+  generateProjectReports(
+    schedules: NotionSchedule[],
+    startDate: string,
+    endDate: string,
+    authorName: string,
+    completedSummaryMap: Map<string, string[]>,
+  ): ProjectReport[] {
+    const projectGroups = this.buildProjectGroups(schedules);
+
+    return projectGroups.map((projectGroup) => {
+      const completedSchedules = projectGroup.schedules.filter((schedule) =>
+        this.isCompleted(schedule.status),
+      );
+      const pendingSchedules = projectGroup.schedules.filter(
+        (schedule) => !this.isCompleted(schedule.status),
+      );
+      const markdown = this.renderProjectReport(
+        projectGroup,
+        startDate,
+        endDate,
+        authorName,
+        completedSummaryMap.get(projectGroup.projectName) || [],
+      );
+
+      return {
+        projectName: projectGroup.projectName,
+        projectUrl: projectGroup.projectUrl,
+        markdown,
+        scheduleCount: projectGroup.schedules.length,
+        completedCount: completedSchedules.length,
+        pendingCount: pendingSchedules.length,
+      };
+    });
+  }
+
+  private renderProjectReport(
+    projectGroup: ProjectGroup,
+    startDate: string,
+    endDate: string,
+    authorName: string,
+    completedSummaryLines: string[],
   ): string {
+    const completedSchedules = projectGroup.schedules.filter((schedule) =>
+      this.isCompleted(schedule.status),
+    );
+    const pendingSchedules = projectGroup.schedules.filter(
+      (schedule) => !this.isCompleted(schedule.status),
+    );
+
     const lines: string[] = [];
 
-    for (const project of projectGroups) {
-      // 프로젝트 헤더 (제목만)
-      lines.push(`### ${project.projectName}`);
-      lines.push('');
-
-      // 상위 항목 그룹핑 필요 여부 판단
-      const totalSchedules = project.categories.reduce(
-        (sum, cat) => sum + cat.schedules.length,
-        0,
-      );
-      const hasMultipleCategories =
-        project.categories.filter((c) => c.categoryName).length > 1;
-      const needsCategoryGrouping = hasMultipleCategories && totalSchedules > 1;
-
-      if (needsCategoryGrouping) {
-        // 카테고리별 서브 그룹
-        for (const category of project.categories) {
-          if (category.categoryName) {
-            lines.push(`#### ${category.categoryName}`);
-            lines.push('');
-          }
-          for (const schedule of category.schedules) {
-            lines.push(...this.renderSchedule(schedule));
-          }
-          lines.push('');
-        }
-      } else {
-        // 프로젝트 하위로 바로 일정 나열
-        const allSchedules = project.categories.flatMap((c) => c.schedules);
-        for (const schedule of allSchedules) {
-          lines.push(...this.renderSchedule(schedule));
-        }
-        lines.push('');
-      }
-    }
+    lines.push('### **1. 프로젝트 개요 (Properties)**');
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    lines.push(`- **프로젝트명:** ${projectGroup.projectName}`);
+    lines.push(
+      `- **보고 기간:** ${this.formatReportPeriod(startDate)} ~ ${this.formatReportPeriod(endDate)}`,
+    );
+    lines.push(`- **작성자:** ${authorName || '-'}`);
+    lines.push(
+      '- **현 단계 (Phase):** 기획(%) -> 디자인(%) -> 개발(%) -> 테스트(%)',
+    );
+    lines.push('');
+    lines.push(
+      '### **2. 🗺️ 마일스톤(목표) 및 체크리스트 점검 (Process Check)**',
+    );
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    lines.push(
+      '*기존 업무분장표(매뉴얼)의 프로세스를 기준으로 현재 위치를 점검합니다.*',
+    );
+    lines.push('');
+    lines.push("[해당 프로젝트의 '해당 기간(주/월) 중' 해결 된 업무 분장]");
+    lines.push('');
+    lines.push(
+      ...this.renderCompletedLines(completedSchedules, completedSummaryLines),
+    );
+    lines.push('');
+    lines.push("[해당 프로젝트의 '남은' 업무 분장]");
+    lines.push('');
+    lines.push('- 예정');
+    lines.push(...this.renderPendingLines(pendingSchedules));
+    lines.push('');
+    lines.push('### **3. ⚠️ 이슈 (Issue)**');
+    lines.push('');
+    lines.push('---');
+    lines.push('');
+    lines.push('- 이슈 1');
+    lines.push('    - **내용**');
+    lines.push('    - **원인**');
+    lines.push('    - **대응 방안**');
+    lines.push('        - **방안**');
+    lines.push('        - **담당자**');
+    lines.push('        - **기한**');
+    lines.push('');
 
     return lines.join('\n');
   }
 
-  /**
-   * 개별 일정 렌더링
-   */
-  private renderSchedule(schedule: NotionSchedule): string[] {
-    const lines: string[] = [];
-
-    lines.push(`- ${schedule.title}`);
-
-    // 하위 내용 (서브 불릿)
-    for (const child of schedule.childContent) {
-      lines.push(`    - ${child}`);
+  private renderCompletedLines(
+    completedSchedules: NotionSchedule[],
+    completedSummaryLines: string[],
+  ): string[] {
+    if (completedSchedules.length === 0) {
+      return ['- 없음'];
     }
 
-    return lines;
+    const sanitized = completedSummaryLines
+      .map((line) => line.trim().replace(/^-\s*/, ''))
+      .filter(Boolean);
+
+    if (sanitized.length > 0) {
+      return sanitized.map((line) => `- ${line}`);
+    }
+
+    return completedSchedules.map((schedule) => `- ${schedule.title}`);
+  }
+
+  private renderPendingLines(pendingSchedules: NotionSchedule[]): string[] {
+    if (pendingSchedules.length === 0) {
+      return ['    - 없음'];
+    }
+
+    return pendingSchedules
+      .slice()
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(
+        (schedule) =>
+          `    - ${this.formatPendingDate(schedule.date)}: ${schedule.title}`,
+      );
+  }
+
+  private formatReportPeriod(date: string): string {
+    if (!date) return '-';
+
+    const value = new Date(date);
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    return `${year}.${month}.${day}`;
+  }
+
+  private formatPendingDate(date: string): string {
+    if (!date) return '~-';
+
+    const value = new Date(date);
+    const days = ['일', '월', '화', '수', '목', '금', '토'];
+    const month = value.getMonth() + 1;
+    const day = String(value.getDate()).padStart(2, '0');
+    return `~${month}/${day} (${days[value.getDay()]})`;
+  }
+
+  private isCompleted(status: string): boolean {
+    return (status || '').trim() === '완료';
   }
 }

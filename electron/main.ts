@@ -134,8 +134,8 @@ function registerIpcHandlers(): void {
           return {
             success: true,
             data: {
-              markdown: '해당 기간에 일정이 없습니다.',
-              schedules: [],
+              projectReports: [],
+              excludedScheduleCount: 0,
             },
           };
         }
@@ -156,38 +156,58 @@ function registerIpcHandlers(): void {
           console.error('[Report] 상세내용 요약 실패, 원본 사용:', err);
         }
 
-        // AI 요약용 텍스트
-        const contentForAI = schedules
-          .map(
-            (s: any) =>
-              `[${s.project}] ${s.title} (${s.status}) ${s.childContent.join(', ')}`,
-          )
-          .join('\n');
+        const authorName = loadConfig().notionUserName || '-';
+        const projectGroups = reportService.buildProjectGroups(schedules);
+        const completedSummaryMap = new Map<string, string[]>();
 
-        // AI 3줄 요약 + 의사결정 초안
-        let summary = '';
-        let planDraft = '';
-        try {
-          summary = await geminiService.generateSummary(contentForAI);
-          planDraft = await geminiService.generatePlanDraft(contentForAI);
-        } catch {
-          summary = '- **상황:** \n- **진행:** \n- **요청:** ';
-          planDraft = '- ';
+        for (const projectGroup of projectGroups) {
+          const completedSchedules = projectGroup.schedules.filter(
+            (schedule) => (schedule.status || '').trim() === '완료',
+          );
+
+          if (completedSchedules.length === 0) continue;
+
+          try {
+            const summaryLines =
+              await geminiService.generateCompletedWorkSummary(
+                projectGroup.projectName,
+                completedSchedules.map((schedule) => ({
+                  title: schedule.title,
+                  childContent: schedule.childContent,
+                })),
+              );
+
+            if (summaryLines.length > 0) {
+              completedSummaryMap.set(projectGroup.projectName, summaryLines);
+            }
+          } catch (err) {
+            console.error(
+              `[Report] 완료 업무 요약 실패 (${projectGroup.projectName}), 기본 제목 사용:`,
+              err,
+            );
+          }
         }
 
-        // 보고서 생성
-        const markdown = reportService.generateReport(
+        const projectReports = reportService.generateProjectReports(
           schedules,
-          type,
           startDate,
           endDate,
-          summary,
-          planDraft,
+          authorName,
+          completedSummaryMap,
         );
+
+        const includedScheduleCount = projectReports.reduce(
+          (sum, report) => sum + report.scheduleCount,
+          0,
+        );
+        const excludedScheduleCount = schedules.length - includedScheduleCount;
 
         return {
           success: true,
-          data: { markdown, schedules },
+          data: {
+            projectReports,
+            excludedScheduleCount,
+          },
         };
       } catch (error: any) {
         return { success: false, error: error.message };

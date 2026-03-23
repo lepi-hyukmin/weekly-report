@@ -71,6 +71,54 @@ ${reportContent}`;
   }
 
   /**
+   * 프로젝트별 완료 업무 설명 생성
+   */
+  async generateCompletedWorkSummary(
+    projectName: string,
+    schedules: Array<{ title: string; childContent: string[] }>,
+  ): Promise<string[]> {
+    if (schedules.length === 0) return [];
+
+    const config = loadConfig();
+    const genAI = this.getClient();
+    const model = genAI.getGenerativeModel({ model: config.geminiModel });
+
+    const content = schedules
+      .map((schedule, index) => {
+        const details =
+          schedule.childContent.length > 0
+            ? schedule.childContent.map((item) => `- ${item}`).join('\n')
+            : '- 세부 내용 없음';
+        return `[완료 업무 ${index + 1}] ${schedule.title}\n${details}`;
+      })
+      .join('\n\n');
+
+    const prompt = `당신은 IT 회사의 프로젝트 주간 보고서 작성 전문가입니다.
+아래는 프로젝트 "${projectName}" 에서 완료된 업무 목록입니다.
+
+규칙:
+1. 각 완료 업무마다 1개의 불릿 라인을 작성합니다.
+2. 각 라인은 자연스러운 한국어 문장 1문장으로 작성합니다.
+3. 일정 제목과 세부 내용을 바탕으로 "무엇이 완료되었는지"를 간결하게 정리합니다.
+4. 출력은 반드시 마크다운 불릿 목록만 사용합니다.
+5. 각 줄은 "- " 로 시작합니다.
+6. 항목 수는 입력된 완료 업무 수를 넘지 않습니다.
+
+입력:
+${content}`;
+
+    const result = await model.generateContent(prompt);
+    const response = result.response.text();
+
+    return response
+      .split('\n')
+      .map((line) => line.trim())
+      .filter((line) => line.startsWith('-'))
+      .map((line) => line.replace(/^-\s*/, '').trim())
+      .filter(Boolean);
+  }
+
+  /**
    * 긴 상세내용을 요약 (5개 초과 시)
    * schedules 배열을 받아서 childContent가 5개 초과인 항목만 요약
    */
