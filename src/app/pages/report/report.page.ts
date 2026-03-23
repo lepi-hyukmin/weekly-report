@@ -271,63 +271,71 @@ import {
             </div>
 
             <div class="issue-modal-body">
-              <div class="issue-section-title">이슈 목록</div>
-
-              @if (state.issueDrafts().length === 0) {
-                <p class="issue-empty">등록된 이슈가 없습니다.</p>
-              }
+              <div class="issue-section-title">프로젝트별 이슈 입력</div>
 
               @for (
-                issue of state.issueDrafts();
-                track issue.id;
-                let i = $index
+                section of state.issueSections();
+                track section.projectName
               ) {
-                <div class="issue-row">
-                  <div class="issue-row-top">
-                    <span class="issue-row-label">이슈{{ i + 1 }}</span>
-                    <button
-                      class="btn btn-text issue-delete-btn"
-                      (click)="removeIssueDraft(issue.id)"
-                    >
-                      삭제
-                    </button>
+                <section class="issue-project-section">
+                  <div class="issue-project-header">
+                    <h3 class="issue-project-title">
+                      {{ section.projectName }}
+                    </h3>
                   </div>
 
-                  <div class="issue-row-fields">
-                    <select
-                      class="input issue-project-select"
-                      [ngModel]="issue.projectName"
-                      (ngModelChange)="updateIssueProject(issue.id, $event)"
-                    >
-                      <option value="">프로젝트 선택</option>
-                      @for (
-                        projectName of state.issueProjectOptions();
-                        track projectName
-                      ) {
-                        <option [value]="projectName">{{ projectName }}</option>
-                      }
-                    </select>
+                  @if (section.issues.length === 0) {
+                    <p class="issue-empty">이슈 없음</p>
+                  }
 
-                    <input
-                      type="text"
-                      class="input issue-content-input"
-                      [ngModel]="issue.content"
-                      (ngModelChange)="updateIssueContent(issue.id, $event)"
-                      placeholder="이슈 내용을 입력하세요"
-                    />
-                  </div>
-                </div>
+                  @for (
+                    issue of section.issues;
+                    track issue.id;
+                    let i = $index
+                  ) {
+                    <div class="issue-row">
+                      <div class="issue-row-top">
+                        <span class="issue-row-label">이슈{{ i + 1 }}</span>
+                        <button
+                          class="btn btn-text issue-delete-btn"
+                          (click)="
+                            removeIssueDraft(section.projectName, issue.id)
+                          "
+                        >
+                          삭제
+                        </button>
+                      </div>
+
+                      <div class="issue-row-fields single-field">
+                        <input
+                          type="text"
+                          class="input issue-content-input"
+                          [ngModel]="issue.content"
+                          (ngModelChange)="
+                            updateIssueContent(
+                              section.projectName,
+                              issue.id,
+                              $event
+                            )
+                          "
+                          placeholder="이슈 내용을 입력하세요"
+                        />
+                      </div>
+                    </div>
+                  }
+
+                  <button
+                    class="btn btn-secondary issue-add-btn"
+                    (click)="addIssueDraft(section.projectName)"
+                  >
+                    + 추가
+                  </button>
+                </section>
               }
 
-              <button
-                class="btn btn-secondary issue-add-btn"
-                (click)="addIssueDraft()"
-              >
-                + 추가
-              </button>
-
               <p class="issue-help-text">
-                원인, 대응 방안, 담당자, 기한은 기본 규칙으로 자동 채워집니다.
+                프로젝트별로 이슈를 추가할 수 있으며, 이슈가 없으면 그대로 생성
+                가능합니다.
               </p>
             </div>
 
@@ -957,12 +965,14 @@ export class ReportPage {
     this.state.closeIssueModal();
 
     const issues = this.state
-      .issueDrafts()
-      .map((issue) => ({
-        ...issue,
-        projectName: issue.projectName.trim(),
-        content: issue.content.trim(),
-      }))
+      .issueSections()
+      .flatMap((section) =>
+        section.issues.map((issue) => ({
+          id: issue.id,
+          projectName: section.projectName.trim(),
+          content: issue.content.trim(),
+        })),
+      )
       .filter((issue) => issue.projectName && issue.content);
 
     try {
@@ -1026,20 +1036,16 @@ export class ReportPage {
     this.state.closeIssueModal();
   }
 
-  addIssueDraft() {
-    this.state.addIssueDraft(this.state.issueProjectOptions()[0] || '');
+  addIssueDraft(projectName: string) {
+    this.state.addIssueDraft(projectName);
   }
 
-  removeIssueDraft(id: string) {
-    this.state.removeIssueDraft(id);
+  removeIssueDraft(projectName: string, id: string) {
+    this.state.removeIssueDraft(projectName, id);
   }
 
-  updateIssueProject(id: string, projectName: string) {
-    this.state.updateIssueDraft(id, 'projectName', projectName);
-  }
-
-  updateIssueContent(id: string, content: string) {
-    this.state.updateIssueDraft(id, 'content', content);
+  updateIssueContent(projectName: string, id: string, content: string) {
+    this.state.updateIssueDraft(projectName, id, content);
   }
 
   selectProjectReport(projectName: string) {

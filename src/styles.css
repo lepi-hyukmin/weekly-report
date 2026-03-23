@@ -109,6 +109,25 @@ app-report .issue-empty {
   color: #8c8cb4;
 }
 
+app-report .issue-project-section {
+  padding: 14px;
+  border: 1px solid #2a2a4a;
+  border-radius: 12px;
+  background: rgba(15, 15, 26, 0.72);
+  margin-bottom: 12px;
+}
+
+app-report .issue-project-header {
+  margin-bottom: 10px;
+}
+
+app-report .issue-project-title {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+}
+
 app-report .issue-row {
   padding: 14px;
   border: 1px solid #2a2a4a;
@@ -137,7 +156,10 @@ app-report .issue-row-fields {
   gap: 10px;
 }
 
-app-report .issue-project-select,
+app-report .issue-row-fields.single-field {
+  grid-template-columns: 1fr;
+}
+
 app-report .issue-content-input {
   min-width: 0;
 }

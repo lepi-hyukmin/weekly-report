@@ -223,17 +223,11 @@ export class ReportService {
     issues.forEach((issue, index) => {
       const content = issue.content.trim();
       lines.push(`- 이슈 ${index + 1}`);
-      lines.push('    - 내용');
-      lines.push(`        - ${content}`);
-      lines.push('    - 원인');
-      lines.push(`        - ${this.buildIssueCause(content)}`);
-      lines.push('    - 대응 방안');
-      lines.push('        - 방안');
-      lines.push(`            - ${this.buildIssueAction(content)}`);
-      lines.push('        - 담당자');
-      lines.push(`            - ${authorName || '-'}`);
-      lines.push('        - 기한');
-      lines.push(`            - ${deadline}`);
+      lines.push(`    - **내용:** ${content}`);
+      lines.push(`    - **원인:** ${this.buildIssueCause(content)}`);
+      lines.push(`    - **대응 방안:** ${this.buildIssueAction(content)}`);
+      lines.push(`    - **담당자:** ${authorName || '-'}`);
+      lines.push(`    - **기한:** ${deadline}`);
     });
 
     return lines;
