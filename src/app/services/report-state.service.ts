@@ -44,7 +44,7 @@ export class ReportStateService {
   // 폼
   startDate = '';
   endDate = '';
-  reportType: 'MONDAY' | 'FRIDAY' = 'FRIDAY';
+  reportType: 'MONDAY' | 'FRIDAY' = 'MONDAY';
 
   // 상태
   readonly loading = signal(false);
